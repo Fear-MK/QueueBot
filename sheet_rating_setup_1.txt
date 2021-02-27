@@ -1,0 +1,14 @@
+To set this, do `!set primarysheet primaryrating name <name>`, with <name> being that sheet name.
+
+Next, you need to specify where on the sheet the player names and ratings are. Spreadsheets have ranges, like C2:C35. (If this is totally foreign to you, you need to do 10 minutes of learning on Google.) Your range will most likely look like C2:D or D:E.
+To set the range where player names and ratings are, do `!set primarysheet primaryrating range <range>` where <range> is that range.
+
+Now if you want to use a secondary rating, you'd do the exact same steps, just put *secondaryrating* instead of primaryrating. And if you want to setup a second sheet, same thing, except you'd do *secondarysheet*.
+
+Concluding, you need to make sure that the bot has access to these spreadsheet(s). Click the Share button in the upper right hand corner, and share access with this email: mkw-war-lounge-bot-service-acc@responsive-bird-291003.iam.gserviceaccount.com
+
+Finally, you need to run `!connect` once you're finished with everything. This will make the bot connect to the spreadsheets. It can detect some early problems with the setup, but not all problems. If it's successful, I'd advise trying a queue just to make sure. If you every change your settings in the future, you do need to run `!connect` again.
+
+That's it. Go have fun!
+
+P.S. You can do `!rating_settings` to see the current settings.

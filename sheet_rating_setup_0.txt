@@ -1,0 +1,15 @@
+Queuebot allows you to set up and connect with your own rating system in your server and pull player's ratings when they queue. You can connect to either a Google Sheet, or a website API. Most likely, you'll be using a Google Spreadsheet, so that's what we'll cover here. (If you want to use a website, please discuss with Bad Wolf.)
+
+Queuebot is highly customizable with rating systems, allowing you to use 2 different leaderboards, each with 2 different rating types. From here on out, we'll refer to *ratings* as *mmr*. Here are some examples of what Queuebot can be set up with:
+- You want to have normal mmr.
+- You want to have normal mmr, but within that normal mmr, you have different mmr types (for example, in racing games, you might have runners and baggers).
+- You want to have 2 different mmrs because your game has 2 different modes. You want to use separate mmr for each. Matches are played in one mode or the other.
+- You want to have 2 different mmrs because your game has 2 different modes, and within each mode, you have 2 different mmr types.
+
+This may seem daunting, especially on how to set it up, but I promise all the information is here. Relax, read this a few times, then take a try.
+
+First thing is first, you need to set up a spreadsheet on Google Sheets with Player names in one column, and their corresponding rating in the column next to it.
+Next, look at the spreadsheet url. Your spreadsheet ID comes right after **/spreadsheets/d/**
+To set your spreadsheet id for your primary rating system, do `!set primarysheet sheet id <id>` with <id> being that long id in the URL we just talked about.
+
+Next, you need to tell the bot what the Sheet Name is for your primary system. The sheet name is the name of the sheet tab your leaderboard is (it's in the lower left hand corner).
