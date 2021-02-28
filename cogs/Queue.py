@@ -202,7 +202,6 @@ class IndividualQueue():
         
     async def makeRoomsLogic(self, queue_channel:discord.TextChannel, openTime:int, guild_settings:GuildSettings.GUILD_SETTINGS, startedViaAutomation=False):
         """Sorts squads into rooms based on average MMR, creates room channels and adds players to each room channel"""
-        await queue_channel.send("Here")
         if self.making_rooms_run and startedViaAutomation: #Reduce race condition, but also allow manual !makeRooms
             return
         
@@ -258,7 +257,7 @@ class IndividualQueue():
                     overwrites[discord_role] = discord.PermissionOverwrite(view_channel=True)
             
             
-            voice_channel_base_overwrites = overwrites.copy()
+            voice_channel_overwrites = overwrites.copy()
             all_voice_channel_overwrites = []
             msg = "`%s`\n" % roomName
             for j in range(self.teams_per_room):
@@ -271,13 +270,12 @@ class IndividualQueue():
                     overwrites[player] = discord.PermissionOverwrite(view_channel=True)
                     
                 if guild_settings.create_voice_channels:
-                    all_voice_channel_overwrites.append(voice_channel_base_overwrites.copy())
+                    all_voice_channel_overwrites.append(voice_channel_overwrites.copy())
                     for player in sortedTeams[index].keys():
                         all_voice_channel_overwrites[-1][player] = discord.PermissionOverwrite(view_channel=True)
                     
             roomMsg = msg
             mentions = ""
-            hosts = []
             if guild_settings.send_table_text:
                 scoreboard = "Table: `!scoreboard %d " % self.teams_per_room
                 for j in range(self.teams_per_room):
@@ -288,28 +286,24 @@ class IndividualQueue():
                         #Scoreboard logic
                         scoreboard += player.display_name.replace(" ", "")
                         scoreboard += " "
-                        #Host logic
-                        if sortedTeams[index][player][1]: #If they queued as host
-                            hosts.append(player.display_name)
             
                 roomMsg += "%s`\n" % scoreboard
                 
             host_str = "Decide a host amongst yourselves; "
-            if len(hosts) > 0:
-                random.shuffle(hosts)
-                host_str = "**Host order:**\n"
-                for x, host in enumerate(hosts, 1):
-                    host_str += f"{x}. {host}\n"
-                host_str += "\n"
-
             
             roomMsg += ("\n%sRoom open at :%02d, start at :%02d. Good luck!\n\n"
                         % (host_str, openTime, startTime))
             roomMsg += mentions
-            roomChannel = await category.create_text_channel(name=roomName, overwrites=overwrites)
+            final_text_channel_overwrites = category.overwrites.copy()
+            final_text_channel_overwrites.update(overwrites)
+            roomChannel = await category.create_text_channel(name=roomName, overwrites=final_text_channel_overwrites)
             for ind, voice_channel_overwrites in enumerate(all_voice_channel_overwrites, 1):
-                vc = await category.create_voice_channel(name=roomName + "-vc-" + str(ind), overwrites=voice_channel_overwrites)
+                final_voice_channel_overwrites = category.overwrites.copy()
+                final_voice_channel_overwrites.update(voice_channel_overwrites)
+                
+                vc = await category.create_voice_channel(name=roomName + "-vc-" + str(ind), overwrites=final_voice_channel_overwrites)
                 self.channels.append([vc, False])
+                
             self.channels.append([roomChannel, False])
             await roomChannel.send(roomMsg)
             await queue_channel.send(msg)
@@ -522,8 +516,6 @@ class IndividualQueue():
         players = {}
         primaryPlayerMMRs = await sheet.mmr(ctx, all_primary_players, self.is_primary_leaderboard)
         
-        print("Primary:", all_primary_players)
-        print("Secondary:", all_secondary_players)
         if primaryPlayerMMRs is False:
             return
         for player, mmr in primaryPlayerMMRs.items():
