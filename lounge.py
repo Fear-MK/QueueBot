@@ -6,9 +6,7 @@ from itertools import cycle
 from CustomExceptions import NoGuildSettings
 
 
-bot = commands.Bot(owner_id=706120725882470460, command_prefix='!', case_insensitive=True)
-
-#bot = commands.Bot(owner_id=706120725882470460, command_prefix='!', case_insensitive=True, intents=discord.Intents.all())
+bot = commands.Bot(owner_id=706120725882470460, command_prefix='!', case_insensitive=True, intents=discord.Intents.all())
 
 initial_extensions = ['cogs.Queue', 'cogs.Elo']
 status_cycle = cycle(["Let's Squad Queue!", "!help for how to use bot"])
@@ -46,7 +44,7 @@ async def on_command_error(ctx, error):
     
     #TODO: Need to display the roles that they must have, just displays %s
     if isinstance(error, commands.MissingAnyRole):
-        await(await ctx.send(f"You either need to be a server administrator, or have one of the following roles to use this command: `%s`",
+        await(await ctx.send(f"You either need to be a server administrator, or have one of the following roles to use this command: `{', '.join(error.missing_roles)}`",
                              )
             
               ).delete(delay=10)
