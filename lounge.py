@@ -1,15 +1,15 @@
 from discord.ext import commands, tasks
 import json
 import discord
-from cogs import Queue
+from cogs.Queue import elo_check
 from itertools import cycle
-from CustomExceptions import NoGuildSettings
+from CustomExceptions import NoGuildSettings, NoCarrotAllowed, NotLounge
 
 
-bot = commands.Bot(owner_id=706120725882470460, command_prefix='!', case_insensitive=True, intents=discord.Intents.all())
+bot = commands.Bot(owner_id=706120725882470460, command_prefix=('!', '^'), case_insensitive=True, intents=discord.Intents.all())
 
 initial_extensions = ['cogs.Queue', 'cogs.Elo']
-status_cycle = cycle(["Let's Squad Queue!", "!help for how to use bot"])
+status_cycle = cycle(["Let's Squad Queue!", "!help for how to use bot", "!queuebot_invite for invite link"])
 
 
 with open('./config.json', 'r') as cjson:
@@ -17,7 +17,7 @@ with open('./config.json', 'r') as cjson:
 
 @bot.event
 async def on_ready():
-    statuses.start() 
+    statuses.start()
     print("Logged in as {0.user}".format(bot))
        
 
@@ -75,7 +75,12 @@ async def on_command_error(ctx, error):
         except discord.Forbidden:
             pass
         return
-
+    if isinstance(error, NoCarrotAllowed):
+        return
+    
+    if isinstance(error, NotLounge):
+        return
+    
     
     if 'original' in error.__dict__:
         if isinstance(error.original, discord.Forbidden):
@@ -94,7 +99,7 @@ async def statuses():
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
-    await Queue.Queue.elo_check(bot, message)
+    await elo_check(bot, message)
     #We overrode bot's on_message function, so we must manually invoke process commands
     await bot.process_commands(message)
                     
