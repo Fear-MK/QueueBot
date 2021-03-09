@@ -1,18 +1,26 @@
 import discord
 from discord.ext import commands, tasks
 import json
-import random
 from dateutil.parser import parse
 from datetime import datetime, timedelta
 import dill as p
 from collections import defaultdict, namedtuple
 from cogs import GuildSettings
+from Shared import is_lounge
+from ExtraChecks import carrot_prohibit_check, lounge_only_check
+from builtins import staticmethod
+from typing import List
+from statistics import mean
+from math import sqrt
+
+
+
 
 
 CHECKMARK_ADDITION = "-\U00002713"
 CHECKMARK_ADDITION_LEN = 2
 time_print_formatting = "%B %d, %Y at %I:%M%p EST"
-LOUNGE_SERVER_ID = 387347467332485122
+
 
 #Here is the hierarchy for this file and its classes:
 #AllQueues is a cog that receives commands, it contains 
@@ -27,6 +35,18 @@ TIME_ADJUSTMENT = timedelta(hours=3)
 Scheduled_Event = namedtuple('Scheduled_Event', 'track_type size time started start_channel_id')
 
 GUILDS_SCHEDULES = {}
+
+LOUNGE_EXPONENT = 2
+mean_of_sum_of_exponent = lambda numbers:mean(map(lambda num : num ** LOUNGE_EXPONENT, numbers))
+def calculate_lounge_rating(ratings:List[int]):
+    return round(sqrt(mean_of_sum_of_exponent(ratings)))
+
+
+def calculate_team_rating(ratings:List[int], guild_settings:GuildSettings.GuildSettings):
+    if is_lounge(guild_settings.get_guild_id()):
+        return calculate_lounge_rating(ratings)
+    else:
+        return round(mean(ratings))
 
 def get_role_by_name(guild:discord.Guild, role_name):
     if guild is not None:
@@ -97,7 +117,7 @@ class IndividualQueue():
         self.list = []
         
         # contains the avg MMR of each confirmed team
-        self.avgMMRs = []
+        self.teamRatings = []
 
         #list of Channel objects created by the bot for easy deletion
         self.channels = []
@@ -185,8 +205,8 @@ class IndividualQueue():
             await self.is_started(ctx)
         except:
             return
-        indexes = range(len(self.avgMMRs))
-        sortTeamsMMR = sorted(zip(self.avgMMRs, indexes), reverse=True)
+        indexes = range(len(self.teamRatings))
+        sortTeamsMMR = sorted(zip(self.teamRatings, indexes), reverse=True)
         sortedMMRs = [x for x, _ in sortTeamsMMR]
         sortedTeams = [self.list[i] for i in (x for _, x in sortTeamsMMR)]
         msg = "`Sorted list`\n"
@@ -200,10 +220,12 @@ class IndividualQueue():
         await ctx.send(msg)
 
         
-    async def makeRoomsLogic(self, queue_channel:discord.TextChannel, openTime:int, guild_settings:GuildSettings.GUILD_SETTINGS, startedViaAutomation=False):
+    async def makeRoomsLogic(self, queue_channel:discord.TextChannel, openTime:int, guild_settings:GuildSettings.GuildSettings, startedViaAutomation=False):
         """Sorts squads into rooms based on average MMR, creates room channels and adds players to each room channel"""
         if self.making_rooms_run and startedViaAutomation: #Reduce race condition, but also allow manual !makeRooms
             return
+        
+        
         
         if guild_settings.lockdown_on:
             await lockdown(queue_channel)
@@ -229,7 +251,7 @@ class IndividualQueue():
             
         numTeams = int(numRooms * self.teams_per_room)
         finalList = self.list[0:numTeams]
-        finalMMRs = self.avgMMRs[0:numTeams]
+        finalMMRs = self.teamRatings[0:numTeams]
 
         indexes = range(len(finalMMRs))
         sortTeamsMMR = sorted(zip(finalMMRs, indexes), reverse=True)
@@ -310,7 +332,7 @@ class IndividualQueue():
             
         if numTeams < len(self.list):
             missedTeams = self.list[numTeams:len(self.list)]
-            missedMMRs = self.avgMMRs[numTeams:len(self.list)]
+            missedMMRs = self.teamRatings[numTeams:len(self.list)]
             msg = "`Late teams:`\n"
             for i in range(len(missedTeams)):
                 msg += "`%d.` " % (i+1)
@@ -375,7 +397,7 @@ class IndividualQueue():
         self.teams_per_room = teams_per_room
         self.waiting = []
         self.list = []
-        self.avgMMRs = []
+        self.teamRatings = []
         self.is_primary_leaderboard = leaderboard_type.lower() == guild_settings.primary_leaderboard_name.lower()
 
         if not is_automated:
@@ -397,7 +419,7 @@ class IndividualQueue():
         if guild_settings.lockdown_on:
             await unlockdown(queue_channel)
             
-    async def start(self, ctx, leaderboard_type:str, team_size: int, teams_per_room:int, guild_settings:GuildSettings.GUILD_SETTINGS):
+    async def start(self, ctx, leaderboard_type:str, team_size: int, teams_per_room:int, guild_settings:GuildSettings.GuildSettings):
         """Start a queue in the channel"""
         if not await IndividualQueue.start_input_validation(ctx, leaderboard_type, team_size, teams_per_room, guild_settings):
             return False
@@ -405,7 +427,7 @@ class IndividualQueue():
         await self.launch_queue(ctx.channel, leaderboard_type, team_size, teams_per_room, guild_settings)
         
     
-    async def can(self, ctx, members, guild_settings:GuildSettings.GUILD_SETTINGS):
+    async def can(self, ctx, members, guild_settings:GuildSettings.GuildSettings):
         """Tag your partners to invite them to a queue or accept a invitation to join a queue"""
         #can_bag = ctx.invoked_with.lower() in {'cb', 'canbag', 'b', 'bag'}
         try:
@@ -460,15 +482,15 @@ class IndividualQueue():
                     squad = self.waiting[checkWait]
                     squad2 = {}
                     teamMsg = ""
-                    totalMMR = 0
+                    ratings = []
                     for player in squad.keys():
                         playerMMR = int(squad[player][1])
                         _can_bag = squad[player][2]
                         squad2[player] = [playerMMR, _can_bag]
-                        totalMMR += playerMMR
+                        ratings.append(playerMMR)
                         bagger_str = "bagger " if _can_bag else ""
                         teamMsg += "%s (%d %sMMR)\n" % (player.display_name, int(playerMMR), bagger_str)
-                    self.avgMMRs.append(int(totalMMR/self.team_size))
+                    self.teamRatings.append(calculate_team_rating(ratings, guild_settings))
                     self.waiting.pop(checkWait)
                     self.list.append(squad2)
                     if len(self.list) > 1:
@@ -545,7 +567,7 @@ class IndividualQueue():
         msg += "; each player must type `!c` to join the queue [1/%d]" % (self.team_size)
         await(await ctx.send(msg)).delete(delay=10)
 
-    async def drop(self, ctx, guild_settings:GuildSettings.GUILD_SETTINGS):
+    async def drop(self, ctx, guild_settings:GuildSettings.GuildSettings):
         """Remove your squad from a queue"""
         try:
             await self.is_started(ctx)
@@ -565,14 +587,14 @@ class IndividualQueue():
             fromStr = " from unfilled squads"
         else:
             droppedTeam = self.list.pop(checkList)
-            self.avgMMRs.pop(checkList)
+            self.teamRatings.pop(checkList)
             fromStr = " from queue list"
         string = "Removed team "
         string += ", ".join([player.display_name for player in droppedTeam.keys()])
         string += fromStr
         await(await ctx.send(string)).delete(delay=5)
         
-    async def remove(self, ctx, num: int, guild_settings:GuildSettings.GUILD_SETTINGS):
+    async def remove(self, ctx, num: int, guild_settings:GuildSettings.GuildSettings):
         """Removes the given squad ID from the queue list"""
         try:
             await self.is_started(ctx)
@@ -583,11 +605,11 @@ class IndividualQueue():
                                  % len(self.list))).delete(delay=10)
             return
         squad = self.list.pop(num-1)
-        self.avgMMRs.pop(num-1)
+        self.teamRatings.pop(num-1)
         await ctx.send("Removed squad %s from queue list"
                        % (", ".join([player.display_name for player in squad.keys()])))
 
-    async def close(self, ctx, guild_settings:GuildSettings.GUILD_SETTINGS):
+    async def close(self, ctx, guild_settings:GuildSettings.GuildSettings):
         """Close the queue so players can't join or drop"""
         try:
             await self.is_started(ctx)
@@ -600,7 +622,7 @@ class IndividualQueue():
         if guild_settings.lockdown_on:
             await lockdown(ctx.channel)
         
-    async def open(self, ctx, guild_settings:GuildSettings.GUILD_SETTINGS):
+    async def open(self, ctx, guild_settings:GuildSettings.GuildSettings):
         """Reopen the queue so that players can join and drop"""
         try:
             await self.is_started(ctx)
@@ -616,7 +638,7 @@ class IndividualQueue():
         if guild_settings.lockdown_on:
             await unlockdown(ctx.channel)
         
-    async def end(self, ctx, guild_settings:GuildSettings.GUILD_SETTINGS):
+    async def end(self, ctx, guild_settings:GuildSettings.GuildSettings):
         """End the queue"""
         try:
             await self.is_started(ctx)
@@ -636,13 +658,13 @@ class IndividualQueue():
         self.start_time = None
         self.waiting = []
         self.list = []
-        self.avgMMRs = []
+        self.teamRatings = []
         self.is_primary_leaderboard = True
         await ctx.send("%s has ended the queue" % ctx.author.display_name)
         if guild_settings.lockdown_on:
             await lockdown(ctx.channel)
         
-    async def _list(self, ctx, guild_settings:GuildSettings.GUILD_SETTINGS):
+    async def _list(self, ctx, guild_settings:GuildSettings.GuildSettings):
         """Display the list of confirmed squads for a queue; sends 15 at a time to avoid
            reaching 2000 character limit"""
         try:
@@ -657,7 +679,7 @@ class IndividualQueue():
             #safeguard against potentially reaching 2000-char msg limit
             addition = "`%d.` " % (i+1)
             addition += ", ".join([player.display_name + (" (bagger)" if self.list[i][player][1] else "") for player in self.list[i].keys()])
-            addition += " (%d MMR)\n" % (self.avgMMRs[i])
+            addition += " (%d MMR)\n" % (self.teamRatings[i])
             if len(msg)+len(addition) >= 2000:
                 await ctx.send(msg)
                 msg = ""
@@ -675,7 +697,7 @@ class IndividualQueue():
             msg += addition
         await ctx.send(msg)
         
-    async def squad(self, ctx, guild_settings:GuildSettings.GUILD_SETTINGS):
+    async def squad(self, ctx, guild_settings:GuildSettings.GuildSettings):
         """Displays information about your squad for a queue"""
         try:
             await self.is_started(ctx)
@@ -718,7 +740,7 @@ class IndividualQueue():
                 playerNum += 1
             await(await ctx.send(msg)).delete(delay=30)
 
-    async def makeRooms(self, ctx, openTime: int, guild_settings:GuildSettings.GUILD_SETTINGS):
+    async def makeRooms(self, ctx, openTime: int, guild_settings:GuildSettings.GuildSettings):
         try:
             await self.is_started(ctx)
         except:
@@ -818,7 +840,7 @@ class Queue(commands.Cog):
         
             
     async def __create_testing_env__(self):
-        self.avgMMRs = [1000, 2000]
+        self.teamRatings = [1000, 2000]
         temp_ids = [196574963673595904, 706120725882470460,
                     372022813839851520, 235148962103951360,
                     155149108183695360, 735782213118853180,
@@ -831,13 +853,14 @@ class Queue(commands.Cog):
             self.list.append({})
             for disc_id in temp_ids[self.team_size*i:(self.team_size*i + self.team_size)]:
                 member = await self.bot.fetch_user(disc_id)
-                self.list[i][member] = [self.avgMMRs[i], False]
+                self.list[i][member] = [self.teamRatings[i], False]
         self.started = True
         
         
     @commands.command(aliases=['c'])
     @commands.max_concurrency(number=1,wait=True)
     @commands.guild_only()
+    @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     async def can(self, ctx, members: commands.Greedy[discord.Member]):
         """Tag your partners to invite them to a queue or accept a invitation to join a queue"""
@@ -849,6 +872,7 @@ class Queue(commands.Cog):
     @commands.command(aliases=['d'])
     @commands.max_concurrency(number=1,wait=True)
     @commands.guild_only()
+    @carrot_prohibit_check()
     @commands.cooldown(1, 15, commands.BucketType.member)
     @GuildSettings.has_guild_settings_check()
     async def drop(self, ctx):
@@ -860,6 +884,7 @@ class Queue(commands.Cog):
     @commands.command(aliases=['r'])
     @commands.max_concurrency(number=1,wait=True)
     @commands.guild_only()
+    @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def remove(self, ctx, num: int):
@@ -870,6 +895,7 @@ class Queue(commands.Cog):
 
     @commands.command()
     @commands.guild_only()
+    @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def start(self, ctx, track_type:str, team_size: int, teams_per_room:int):
@@ -881,6 +907,7 @@ class Queue(commands.Cog):
     
     @commands.command()
     @commands.guild_only()
+    @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def close(self, ctx):
@@ -891,6 +918,7 @@ class Queue(commands.Cog):
 
     @commands.command()
     @commands.guild_only()
+    @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def open(self, ctx):
@@ -901,6 +929,7 @@ class Queue(commands.Cog):
 
     @commands.command()
     @commands.guild_only()
+    @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def end(self, ctx):
@@ -913,6 +942,7 @@ class Queue(commands.Cog):
     @commands.command(aliases=['l'])
     @commands.cooldown(1, 60, commands.BucketType.channel)
     @commands.guild_only()
+    @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     async def list(self, ctx):
         """Display the list of confirmed squads for a queue"""
@@ -923,6 +953,7 @@ class Queue(commands.Cog):
     @commands.command()
     @commands.cooldown(1, 30, commands.BucketType.member)
     @commands.guild_only()
+    @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     async def squad(self, ctx):
         """Displays information about your squad for a queue"""
@@ -934,6 +965,7 @@ class Queue(commands.Cog):
     @commands.command()
     @commands.bot_has_guild_permissions(manage_channels=True)
     @commands.guild_only()
+    @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def makeRooms(self, ctx, openTime: int):
@@ -943,8 +975,9 @@ class Queue(commands.Cog):
         
     
     @commands.command()
-    @commands.bot_has_guild_permissions(manage_channels=True)
     @commands.guild_only()
+    @carrot_prohibit_check()
+    @commands.bot_has_guild_permissions(manage_channels=True)
     async def finish(self, ctx):
         """Finishes the room by adding a checkmark to the channel. Anyone in the room can call this command."""
         current_channel = ctx.channel
@@ -964,6 +997,7 @@ class Queue(commands.Cog):
                                       
     @commands.command()
     @commands.guild_only()
+    @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def schedule(self, ctx, queue_channel:discord.TextChannel, track_type:str, size: int, schedule_time:str):
@@ -997,6 +1031,7 @@ class Queue(commands.Cog):
         
     @commands.command()
     @commands.guild_only()
+    @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def view_schedule(self, ctx):
@@ -1014,6 +1049,7 @@ class Queue(commands.Cog):
             
     @commands.command()
     @commands.guild_only()
+    @carrot_prohibit_check()
     @commands.max_concurrency(number=1,wait=True)
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
@@ -1032,6 +1068,7 @@ class Queue(commands.Cog):
         
     @commands.command()
     @commands.guild_only()
+    @carrot_prohibit_check()
     @commands.max_concurrency(number=1,wait=True)
     async def testenv(self, ctx):
         if ctx.author.id != 706120725882470460:
@@ -1067,6 +1104,7 @@ class Queue(commands.Cog):
             
     @commands.command()
     @commands.guild_only()
+    @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def sortTeams(self, ctx):
@@ -1076,118 +1114,143 @@ class Queue(commands.Cog):
         await guilds_queues.sortTeams(ctx, guild_settings)
     
     
-    """
-    @commands.command()
-    @commands.guild_only()
-    @commands.cooldown(1, 30, commands.BucketType.member)
-    @commands.hidden()
-    @GuildSettings.has_roles_check()
-    async def baggerstats(self, ctx, track_type:str):
-        return
-        if ctx.guild.id != LOUNGE_SERVER_ID:
-            return
-        
-    @commands.command()
-    @commands.guild_only()
-    @commands.cooldown(1, 30, commands.BucketType.member)
-    @commands.hidden()
-    @GuildSettings.has_roles_check()
-    async def stats(self, ctx):
-        return
-        if ctx.guild.id != LOUNGE_SERVER_ID:
-            return
-    """ 
-        
-    @staticmethod
-    async def elo_check(bot, message: discord.Message):
-        if message.content == None or len(message.content) == 0 or message.content.strip() == '!':
-            return
-        if not GuildSettings.has_guild_settings(message):
-            return
-        guild_settings = GuildSettings.get_guild_settings(str(message.guild.id))
-        if not guild_settings.rating_command_on:
-            return
-        lookup = False
+    async def send_stats_embed(self, ctx, is_primary_rating, track_type):
+        guild_settings = GuildSettings.get_guild_settings(ctx)
         is_primary_leaderboard = None
-        is_primary_rating = None
-        for_who = ""
-        title = ""
-        title_end = ""
-        if message.content.lower().startswith('!' + guild_settings.rating_name.lower()) or \
-        (message.content.lower().startswith('^' + guild_settings.rating_name.lower()) and message.guild.id==LOUNGE_SERVER_ID):
-            for_who = strip_prefix_and_command(message.content, {guild_settings.rating_name.lower()}, message.content[0])
-            if guild_settings.secondary_leaderboard_on:
-                if not ((guild_settings.primary_leaderboard_name != "" and for_who.lower().startswith(guild_settings.primary_leaderboard_name.lower()))\
-                        or (guild_settings.secondary_leaderboard_name != "" and for_who.lower().startswith(guild_settings.secondary_leaderboard_name.lower()))):
-                    await message.channel.send("Put a valid leaderboard type: " + ", ".join([guild_settings.primary_leaderboard_name, guild_settings.secondary_leaderboard_name]) + f"\n*Example: !{guild_settings.rating_name} {guild_settings.primary_leaderboard_name} Jacob*", delete_after=10)
-                    return
-            lookup = True
-            is_primary_rating = True
-            is_primary_leaderboard = True if not guild_settings.secondary_leaderboard_on else for_who.lower().startswith(guild_settings.primary_leaderboard_name.lower())
-            title_end = (" - " + (guild_settings.primary_leaderboard_name if is_primary_leaderboard else guild_settings.secondary_leaderboard_name)) if guild_settings.secondary_leaderboard_on else ""
-            strip_set = {guild_settings.primary_leaderboard_name.lower()}.union(set() if not guild_settings.secondary_leaderboard_on else {guild_settings.secondary_leaderboard_name.lower()})
-            for_who = strip_prefix_and_command(for_who, strip_set, "") if guild_settings.secondary_leaderboard_on else for_who
+        if guild_settings.primary_leaderboard_name.lower() == track_type.lower():
+            is_primary_leaderboard = True
+        elif guild_settings.secondary_leaderboard_name.lower() == track_type.lower():
+            is_primary_leaderboard = False
         
-        elif message.content.lower().startswith('!' + guild_settings.secondary_rating_name.lower()) or \
-                (message.content.lower().startswith('^' + guild_settings.secondary_rating_name.lower()) and message.guild.id==LOUNGE_SERVER_ID):
-            for_who = strip_prefix_and_command(message.content, {guild_settings.secondary_rating_name.lower()}, message.content[0])
-            valid_types = []
-            if guild_settings.primary_leaderboard_secondary_rating_on:
-                valid_types.append(guild_settings.primary_leaderboard_name)
-            if guild_settings.secondary_leaderboard_secondary_rating_on:
-                valid_types.append(guild_settings.secondary_leaderboard_name)
-            if len(valid_types) == 0:
-                return
-            if len(valid_types) > 1:
-                for t in valid_types:
-                    if t != "" and for_who.lower().startswith(t.lower()):
-                        for_who = strip_prefix_and_command(for_who, {t.lower()}, "")
-                        is_primary_leaderboard = t == guild_settings.primary_leaderboard_name
-                        title_end = " - " + (guild_settings.primary_leaderboard_name if is_primary_leaderboard else guild_settings.secondary_leaderboard_name)
-                        break
-                else:
-                    await message.channel.send("Put a valid leaderboard type: " + ", ".join(valid_types) + f"\n*Example: !{guild_settings.secondary_rating_name} {valid_types[0]} Jacob*", delete_after=10)
-                    return
-            else:
-                is_primary_leaderboard = guild_settings.primary_leaderboard_secondary_rating_on
-            lookup = True
-            is_primary_rating = False
+        valid_leaderboard_types = guild_settings.get_valid_leaderboard_types()
+        if is_primary_leaderboard is None:
+            await ctx.send("Put a valid leaderboard type: " + ", ".join(valid_leaderboard_types) + f"\n*Example: !{ctx.invoked_with} {guild_settings.primary_leaderboard_name} Jacob*", delete_after=10)
+            return
+        
+        stats_description = "War Runner Stats" if is_primary_rating else "War Bagger Stats"
+        stats_description_end = (" - " + (guild_settings.primary_leaderboard_name if is_primary_leaderboard else guild_settings.secondary_leaderboard_name)) if guild_settings.secondary_leaderboard_on else ""
+        for_who = [ctx.author.display_name]
+        all_args = ctx.message.content.split()
+        if len(ctx.args[1:]) < len(all_args): #They are trying to look someone up, they provided a name
+            for_who = [" ".join(all_args[len(ctx.args[1:]):])]
             
+        player_stats_dict = await self.bot.get_cog('Elo').stats(ctx.channel, for_who, is_primary_leaderboard, is_primary_rating)
+        if player_stats_dict is None or len(player_stats_dict) != 1:
+            return
+        player_name, player_stats = next(iter(player_stats_dict.items()))
+        if player_stats is False:
+            await ctx.send(f"Could not find {guild_settings.primary_leaderboard_name if is_primary_leaderboard else guild_settings.secondary_leaderboard_name} {stats_description} for the specified player.", delete_after=30)
+            return
+        
+        await loung_stats_send_with_ranking_icon(ctx, player_name, player_stats, stats_description+stats_description_end, is_primary_rating)
+        
+    
+    @commands.command()
+    @commands.guild_only()
+    @lounge_only_check()
+    @commands.cooldown(1, 30, commands.BucketType.member)
+    @GuildSettings.has_guild_settings_check()
+    async def baggerstats(self, ctx, track_type:str):
+        await self.send_stats_embed(ctx, False, track_type)
+        
+    @commands.command()
+    @commands.guild_only()
+    @lounge_only_check()
+    @commands.cooldown(1, 30, commands.BucketType.member)
+    @GuildSettings.has_guild_settings_check()
+    async def stats(self, ctx, track_type:str):
+        await self.send_stats_embed(ctx, True, track_type)
+        
+        
 
-        if lookup and is_primary_leaderboard is not None and is_primary_rating is not None:
-            to_look_up = for_who.split(",")
-            to_look_up = [name.strip() for name in to_look_up if len(name.strip()) > 0]
-            if len(to_look_up) == 0: #get mmr for author
-                to_look_up = [message.author.display_name]
-            else: #they are trying to look someone, or multiple people up
-                if len(to_look_up) > 15:
-                    await message.channel.send("A maximum of 15 players can be checked at a time.", delete_after=10)
-                    return
-                for name in to_look_up:
-                    if len(name) > 25:
-                        await message.channel.send("One of the names was too long. I'm not going to look this up.", delete_after=10)
-                        return
-                    
-
-            playerMMRs = await bot.get_cog('Elo').mmr(message.channel, to_look_up, is_primary_leaderboard, is_primary_rating)
-            if playerMMRs is False:
+async def elo_check(bot, message: discord.Message):
+    if message.content == None or len(message.content) == 0 or message.content.strip() == '!':
+        return
+    if not GuildSettings.has_guild_settings(message):
+        return
+    guild_settings = GuildSettings.get_guild_settings(str(message.guild.id))
+    if not guild_settings.rating_command_on:
+        return
+    lookup = False
+    is_primary_leaderboard = None
+    is_primary_rating = None
+    for_who = ""
+    title = ""
+    title_end = ""
+    if message.content.lower().startswith('!' + guild_settings.rating_name.lower()) or \
+    (message.content.lower().startswith('^' + guild_settings.rating_name.lower()) and is_lounge(message.guild.id)):
+        for_who = strip_prefix_and_command(message.content, {guild_settings.rating_name.lower()}, message.content[0])
+        if guild_settings.secondary_leaderboard_on:
+            if not ((guild_settings.primary_leaderboard_name != "" and for_who.lower().startswith(guild_settings.primary_leaderboard_name.lower()))\
+                    or (guild_settings.secondary_leaderboard_name != "" and for_who.lower().startswith(guild_settings.secondary_leaderboard_name.lower()))):
+                await message.channel.send("Put a valid leaderboard type: " + ", ".join([guild_settings.primary_leaderboard_name, guild_settings.secondary_leaderboard_name]) + f"\n*Example: !{guild_settings.rating_name} {guild_settings.primary_leaderboard_name} Jacob*", delete_after=10)
                 return
-            title = guild_settings.rating_command_primary_rating_embed_title if is_primary_rating else guild_settings.rating_command_secondary_rating_embed_title
-            if title != "":
-                title += title_end
-            embed = discord.Embed(
-                                    title = title,
-                                    colour = discord.Colour.dark_blue()
-                                )            
-            
-            for name, rating in sorted(playerMMRs.items(), key=lambda data: -1 if data[1] is False else data[1], reverse=True):
-                mmr_str = "Unknown" if rating is False else str(rating)
-                embed.add_field(name=name, value=mmr_str, inline=False)
-            
-            if message.guild.id == LOUNGE_SERVER_ID:
-                await lounge_send_with_ranking_icon(message.channel, embed, is_primary_rating)
+        lookup = True
+        is_primary_rating = True
+        is_primary_leaderboard = True if not guild_settings.secondary_leaderboard_on else for_who.lower().startswith(guild_settings.primary_leaderboard_name.lower())
+        title_end = (" - " + (guild_settings.primary_leaderboard_name if is_primary_leaderboard else guild_settings.secondary_leaderboard_name)) if guild_settings.secondary_leaderboard_on else ""
+        strip_set = {guild_settings.primary_leaderboard_name.lower()}.union(set() if not guild_settings.secondary_leaderboard_on else {guild_settings.secondary_leaderboard_name.lower()})
+        for_who = strip_prefix_and_command(for_who, strip_set, "") if guild_settings.secondary_leaderboard_on else for_who
+    
+    elif message.content.lower().startswith('!' + guild_settings.secondary_rating_name.lower()) or \
+            (message.content.lower().startswith('^' + guild_settings.secondary_rating_name.lower()) and is_lounge(message.guild.id)):
+        for_who = strip_prefix_and_command(message.content, {guild_settings.secondary_rating_name.lower()}, message.content[0])
+        valid_types = []
+        if guild_settings.primary_leaderboard_secondary_rating_on:
+            valid_types.append(guild_settings.primary_leaderboard_name)
+        if guild_settings.secondary_leaderboard_secondary_rating_on:
+            valid_types.append(guild_settings.secondary_leaderboard_name)
+        if len(valid_types) == 0:
+            return
+        if len(valid_types) > 1:
+            for t in valid_types:
+                if t != "" and for_who.lower().startswith(t.lower()):
+                    for_who = strip_prefix_and_command(for_who, {t.lower()}, "")
+                    is_primary_leaderboard = t == guild_settings.primary_leaderboard_name
+                    title_end = " - " + (guild_settings.primary_leaderboard_name if is_primary_leaderboard else guild_settings.secondary_leaderboard_name)
+                    break
             else:
-                await message.channel.send(embed=embed, delete_after=30)
+                await message.channel.send("Put a valid leaderboard type: " + ", ".join(valid_types) + f"\n*Example: !{guild_settings.secondary_rating_name} {valid_types[0]} Jacob*", delete_after=10)
+                return
+        else:
+            is_primary_leaderboard = guild_settings.primary_leaderboard_secondary_rating_on
+        lookup = True
+        is_primary_rating = False
+    
+        
+    if lookup and is_primary_leaderboard is not None and is_primary_rating is not None:
+        to_look_up = for_who.split(",")
+        to_look_up = [name.strip() for name in to_look_up if len(name.strip()) > 0]
+        if len(to_look_up) == 0: #get mmr for author
+            to_look_up = [message.author.display_name]
+        else: #they are trying to look someone, or multiple people up
+            if len(to_look_up) > 15:
+                await message.channel.send("A maximum of 15 players can be checked at a time.", delete_after=10)
+                return
+            for name in to_look_up:
+                if len(name) > 25:
+                    await message.channel.send("One of the names was too long. I'm not going to look this up.", delete_after=10)
+                    return
+                
+        playerMMRs = await bot.get_cog('Elo').mmr(message.channel, to_look_up, is_primary_leaderboard, is_primary_rating)
+        if playerMMRs is False:
+            return
+        title = guild_settings.rating_command_primary_rating_embed_title if is_primary_rating else guild_settings.rating_command_secondary_rating_embed_title
+        if title != "":
+            title += title_end
+        embed = discord.Embed(
+                                title = title,
+                                colour = discord.Colour.dark_blue()
+                            )            
+        
+        for name, rating in sorted(playerMMRs.items(), key=lambda data: -1 if data[1] is False else data[1], reverse=True):
+            mmr_str = "Unknown" if rating is False else str(rating)
+            embed.add_field(name=name, value=mmr_str, inline=False)
+        
+        if is_lounge(message.guild.id):
+            await lounge_mmr_send_with_ranking_icon(message.channel, embed, guild_settings, is_primary_leaderboard, is_primary_rating)
+        else:
+            await message.channel.send(embed=embed, delete_after=30)
 
 lounge_folder_path = ''
 lounge_runner_cutoff_filename = [(999, 'iron.png', "<:Iron:801548182415867954>"),
@@ -1213,28 +1276,59 @@ def lounge_get_ranking_file_name(mmr:int, primary_rating=True):
             mmr_icon_data = (lounge_folder_path + file_name_path, discord_emoji)
             break
     return mmr_icon_data
+
+async def loung_stats_send_with_ranking_icon(ctx, player_name, stats_data, embed_author_name, primary_rating):
+    embed = discord.Embed(
+                            title = player_name,
+                            colour = discord.Colour.dark_blue()
+                        )
+    MMR_INDEX = 1
+    
+    embed.set_author(name=embed_author_name, url=embed.author.url, icon_url="https://mariokartboards.com/lounge/images/logo.png")
+    
+    file=None
+    if stats_data[MMR_INDEX][1].isnumeric():
+        file_path, _ = lounge_get_ranking_file_name(int(stats_data[MMR_INDEX][1]), primary_rating)
+        file = discord.File(file_path)
+        embed.set_thumbnail(url="attachment://" + file_path)
+        
+    for stat_name, stat_value in stats_data:
+        embed.add_field(name="-" if len(str(stat_name).strip()) == 0 else str(stat_name), value="-" if len(str(stat_value).strip()) == 0 else str(stat_value))
+    await ctx.send(file=file, embed=embed, delete_after=30)
         
     
-async def lounge_send_with_ranking_icon(channel:discord.TextChannel, embed:discord.Embed, primary_rating=True):
+async def lounge_mmr_send_with_ranking_icon(channel:discord.TextChannel, embed:discord.Embed, guild_settings, is_primary_leaderboard=True, primary_rating=True):
     embed.set_author(name="\u200b" + embed.title, url=embed.author.url, icon_url="https://mariokartboards.com/lounge/images/logo.png")
     embed.title = ""
     if len(embed.fields) == 1:
         #do one person
         embed.title = embed.fields[0].name
         file = None
-        if embed.fields[0].value.isnumeric():
-            file_path, _ = lounge_get_ranking_file_name(int(embed.fields[0].value), primary_rating)
-            file = discord.File(file_path)
-            embed.set_thumbnail(url="attachment://" + file_path)
+        if not embed.fields[0].value.isnumeric():
+            await channel.send(f"Could not find {guild_settings.primary_leaderboard_name if is_primary_leaderboard else guild_settings.secondary_leaderboard_name} {guild_settings.rating_name if primary_rating else guild_settings.secondary_rating_name} for the specified player.", delete_after=30)
+            return
+        
+        file_path, _ = lounge_get_ranking_file_name(int(embed.fields[0].value), primary_rating)
+        file = discord.File(file_path)
+        embed.set_thumbnail(url="attachment://" + file_path)
         embed.description = embed.fields[0].value
         embed.clear_fields()
         await channel.send(file=file, embed=embed, delete_after=30)
     else:
-        for ind, field in enumerate(embed.fields):
+        missing_player_count = 0
+        for index in reversed(range(len(embed.fields))):
+            field = embed.fields[index]
             if field.value.isnumeric():
                 _, discord_lounge_rating_icon = lounge_get_ranking_file_name(int(field.value), primary_rating)
                 new_name = field.name + "  " + discord_lounge_rating_icon
-                embed.set_field_at(ind, name=new_name, value=field.value, inline=field.inline)
+                embed.set_field_at(index, name=new_name, value=field.value, inline=field.inline)
+            else:
+                missing_player_count += 1
+                embed.remove_field(index)
+        if missing_player_count > 0:
+            embed.set_footer(text=f"Could not find {guild_settings.primary_leaderboard_name if is_primary_leaderboard else guild_settings.secondary_leaderboard_name} {guild_settings.rating_name if primary_rating else guild_settings.secondary_rating_name} for {missing_player_count} of the players.")
+                
+            
         await channel.send(embed=embed, delete_after=30)    
         
 def setup(bot):

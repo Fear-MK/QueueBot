@@ -8,96 +8,11 @@ from collections import defaultdict
 from datetime import timedelta
 import dill as p
 from CustomExceptions import NoGuildSettings
-
-def version_1_patch(all_guild_settings):
-    temp_guild_settings = GuildSettings()
-    for guild_setting in all_guild_settings.values():
-        if 'rating_command_primary_rating_embed_title' not in guild_setting.__dict__:
-            guild_setting.rating_command_primary_rating_embed_title = temp_guild_settings.rating_command_primary_rating_embed_title
-        if 'rating_command_secondary_rating_embed_title' not in guild_setting.__dict__:
-            guild_setting.rating_command_secondary_rating_embed_title = temp_guild_settings.rating_command_secondary_rating_embed_title
-        
-        guild_setting.type_mapping['rating_command_primary_rating_embed_title'] = str
-        guild_setting.type_mapping['rating_command_secondary_rating_embed_title'] = str
-
-def version_2_patch(all_guild_settings):
-    for guild_setting in all_guild_settings.values():
-        if 'primary_leaderboard_type' in guild_setting.__dict__:
-            guild_setting.primary_leaderboard_name = guild_setting.primary_leaderboard_type
-            del guild_setting.__dict__['primary_leaderboard_type']
-        if 'secondary_leaderboard_type' in guild_setting.__dict__:
-            guild_setting.secondary_leaderboard_name = guild_setting.secondary_leaderboard_type
-            del guild_setting.__dict__['secondary_leaderboard_type']
-        
-        guild_setting.type_mapping['primary_leaderboard_name'] = str
-        guild_setting.type_mapping['secondary_leaderboard_name'] = str
-        if 'primary_leaderboard_type' in guild_setting.type_mapping:
-            del guild_setting.type_mapping['primary_leaderboard_type']
-        if 'secondary_leaderboard_type' in guild_setting.type_mapping:
-            del guild_setting.type_mapping['secondary_leaderboard_type']
-            
-def version_3_patch(all_guild_settings):
-    temp_guild_settings = GuildSettings()
-    for guild_setting in all_guild_settings.values():
-        if 'show_rating' not in guild_setting.__dict__:
-            guild_setting.show_rating = temp_guild_settings.show_rating
-        
-        guild_setting.type_mapping['show_rating'] = bool
-            
-
-
-
-command_descriptions = {'rating_name':"This is name for player's ratings (shown when squads sign up, when list is shown, etc). This is **also** the primary rating lookup command name, if you have `rating_command_on` turned on.",
-                     'secondary_rating_name':"This is name for player's secondary ratings (shown when squads sign up, when list is shown, etc). This is **also** the secondary rating lookup command name, if you have `rating_command_on` turned on.",
-                     'primary_leaderboard_name':"This is the name of the primary leaderboard type. It is used to specify which leaderboard should be used when events are started or scheduled. In some cases, it may be used by the rating command if you have `rating_command_on`.",
-                     'secondary_leaderboard_on':"<on/off> - If you have a secondary leaderboard, turn this on. Note: this is not the same as having a secondary rating on your primary leaderboard. This is if you have an entirely different leaderboard.",
-                     'secondary_leaderboard_name':"Description",
-                     'primary_leaderboard_secondary_rating_on':"Description",
-                     'secondary_leaderboard_secondary_rating_on':"Description",
-                     'primary_rating_display_text':"Description",
-                     'secondary_rating_display_text':"Description",
-                     'primary_leaderboard_num_secondary_players':"Description",
-                     'secondary_leaderboard_num_secondary_players':"Description",
-                     'joining_time':"**Only for events run using the event scheduler:** This is the number of minutes before the event start time that queueing opens up.",
-                     'extension_time':"**Only for events run using the event scheduler:** If there aren't a perfect number of teams to evenly split into rooms, this is the number of minutes the bot will extend the queueing time. Note that queueing will end during the extension time if there are a perfect number of teams to fill rooms. Set to 0 if you don't want an extension time.",
-                     'should_ping':"<on/off> - Bot should ping @ here when mogi starts",
-                     'create_voice_channels':"Description",
-                     'show_rating':"If rating should be shown in the list, or when players do `!squad`, or when teams confirm. When channels are created, ratings will be shown regardless of this setting.",
-                     'roles_have_power':"Description",
-                     'send_table_text':"<on/off> - If the `!scoreboard` command should be sent in the created channels.",
-                     'room_open_time':"Description",
-                     'lockdown_on':"<on/off> - Bot should lockdown the queueing channel when rooms are created, and should unlock the channel when Queueing starts",
-                     'roles_can_see_primary_leaderboard_rooms':"These roles will be able to see the created rooms (and voice channels if enabled) when a queue for the primary leaderboard is started.",
-                     'roles_can_see_secondary_leaderboard_rooms':"These roles will be able to see the created rooms (and voice channels if enabled) when a queue for the secondary leaderboard is started.",
-                     'created_channel_name':"Created channels will start with this name.",
-                     'rating_command_on':"<on/off> - If the rating lookup **command** is turned on. (The rating lookup command is `rating_name`. If you have a second rating, `secondary_rating_name` is the secondary rating lookup command.)",
-                     'rating_command_primary_rating_embed_title':"If `rating_command_on` is on, this sets the what the title of the embed should be when a **primary** rating lookup is performed.",
-                     'rating_command_secondary_rating_embed_title':"If `rating_command_on` is on, this sets the what the title of the embed should be when a **secondary** rating lookup is performed."}
-
-
-def information(self):
-    all_messages = []
-    cur_msg = """Here is the command to configure Queuebot's settings: `!queuebot_setup <setting_name> (add/remove) <setting_value>`
-Here are 6 examples:
-`!queuebot_setup create_voice_channels yes`
-`!queuebot_setup should_ping yes`
-`!queuebot_setup joining_time 45`
-`!queuebot_setup rating_name elo`
-`!queuebot_setup roles_have_power add Staff`
-`!queuebot_setup roles_have_power remove Staff`
-
-**These are the things you can configure and a description of what they do:**\n"""
-    for k,v in command_descriptions.items():
-        cur_str = f"`{k}`: {v}"
-        if len(cur_msg) + len(cur_str) >= 2000:
-            all_messages.append(cur_msg)
-            cur_msg = ""
-        cur_msg += cur_str + "\n"
-    all_messages.append(cur_msg)
-    return all_messages
+from ExtraChecks import carrot_prohibit_check
 
 class GuildSettings():
     def __init__(self):
+        self._guild_id = 1
         self.rating_name = "elo" #Done
         self.secondary_rating_name = "elo2" #Done
         self.primary_leaderboard_name = "leaderboard1"
@@ -155,11 +70,14 @@ class GuildSettings():
                              'rating_command_secondary_rating_embed_title':str,
                              'show_rating':bool
                              }
-        
+    def set_guild_id(self, guild_id):
+        self._guild_id = guild_id
+    def get_guild_id(self):
+        return self._guild_id
 
         
     def __contains__(self, key):
-        if key in {'type_mapping', 'command_descriptions'}:
+        if key in {'type_mapping', 'command_descriptions', 'guild_id'}:
             return False
         return key in self.__dict__
     
@@ -271,10 +189,92 @@ class GuildSettings():
                             return f"**{value}** removed from `{key}`"
                         else:
                             return f"**{value}** not in `{key}`"
-                    
-                
-                
+                        
+    def get_valid_leaderboard_types(self):
+        valid_leaderboard_types = []
+        if len(self.primary_leaderboard_name.strip()) > 0:
+            valid_leaderboard_types.append(self.primary_leaderboard_name)
+        
+        if self.secondary_leaderboard_on:
+            if len(self.secondary_leaderboard_name.strip()) > 0:
+                valid_leaderboard_types.append(self.secondary_leaderboard_name)
+        return valid_leaderboard_types
+    
+    def get_parsing_formatted_leaderboard_types(self):
+        return [leaderboard_type.lower().strip() for leaderboard_type in self.get_valid_leaderboard_types()]
+
 GUILD_SETTINGS = defaultdict(GuildSettings)
+
+
+def has_guild_settings(ctx) -> bool:
+    global GUILD_SETTINGS
+    if isinstance(ctx, str):
+        return ctx in GUILD_SETTINGS
+    if ctx.guild is None:
+        return False
+    return str(ctx.guild.id) in GUILD_SETTINGS
+
+def has_guild_settings_check():
+    return commands.check(check_has_guild_settings)
+
+async def check_has_guild_settings(ctx):
+    global GUILD_SETTINGS
+    if not has_guild_settings(ctx):
+        raise NoGuildSettings("No guild settings")
+    return True
+
+
+
+
+command_descriptions = {'rating_name':"This is name for player's ratings (shown when squads sign up, when list is shown, etc). This is **also** the primary rating lookup command name, if you have `rating_command_on` turned on.",
+                     'secondary_rating_name':"This is name for player's secondary ratings (shown when squads sign up, when list is shown, etc). This is **also** the secondary rating lookup command name, if you have `rating_command_on` turned on.",
+                     'primary_leaderboard_name':"This is the name of the primary leaderboard type. It is used to specify which leaderboard should be used when events are started or scheduled. In some cases, it may be used by the rating command if you have `rating_command_on`.",
+                     'secondary_leaderboard_on':"<on/off> - If you have a secondary leaderboard, turn this on. Note: this is not the same as having a secondary rating on your primary leaderboard. This is if you have an entirely different leaderboard.",
+                     'secondary_leaderboard_name':"Description",
+                     'primary_leaderboard_secondary_rating_on':"Description",
+                     'secondary_leaderboard_secondary_rating_on':"Description",
+                     'primary_rating_display_text':"Description",
+                     'secondary_rating_display_text':"Description",
+                     'primary_leaderboard_num_secondary_players':"Description",
+                     'secondary_leaderboard_num_secondary_players':"Description",
+                     'joining_time':"**Only for events run using the event scheduler:** This is the number of minutes before the event start time that queueing opens up.",
+                     'extension_time':"**Only for events run using the event scheduler:** If there aren't a perfect number of teams to evenly split into rooms, this is the number of minutes the bot will extend the queueing time. Note that queueing will end during the extension time if there are a perfect number of teams to fill rooms. Set to 0 if you don't want an extension time.",
+                     'should_ping':"<on/off> - Bot should ping @ here when mogi starts",
+                     'create_voice_channels':"Description",
+                     'show_rating':"If rating should be shown in the list, or when players do `!squad`, or when teams confirm. When channels are created, ratings will be shown regardless of this setting.",
+                     'roles_have_power':"Description",
+                     'send_table_text':"<on/off> - If the `!scoreboard` command should be sent in the created channels.",
+                     'room_open_time':"Description",
+                     'lockdown_on':"<on/off> - Bot should lockdown the queueing channel when rooms are created, and should unlock the channel when Queueing starts",
+                     'roles_can_see_primary_leaderboard_rooms':"These roles will be able to see the created rooms (and voice channels if enabled) when a queue for the primary leaderboard is started.",
+                     'roles_can_see_secondary_leaderboard_rooms':"These roles will be able to see the created rooms (and voice channels if enabled) when a queue for the secondary leaderboard is started.",
+                     'created_channel_name':"Created channels will start with this name.",
+                     'rating_command_on':"<on/off> - If the rating lookup **command** is turned on. (The rating lookup command is `rating_name`. If you have a second rating, `secondary_rating_name` is the secondary rating lookup command.)",
+                     'rating_command_primary_rating_embed_title':"If `rating_command_on` is on, this sets the what the title of the embed should be when a **primary** rating lookup is performed.",
+                     'rating_command_secondary_rating_embed_title':"If `rating_command_on` is on, this sets the what the title of the embed should be when a **secondary** rating lookup is performed."}
+
+
+def information(self):
+    all_messages = []
+    cur_msg = """Here is the command to configure Queuebot's settings: `!queuebot_setup <setting_name> (add/remove) <setting_value>`
+Here are 6 examples:
+`!queuebot_setup create_voice_channels yes`
+`!queuebot_setup should_ping yes`
+`!queuebot_setup joining_time 45`
+`!queuebot_setup rating_name elo`
+`!queuebot_setup roles_have_power add Staff`
+`!queuebot_setup roles_have_power remove Staff`
+
+**These are the things you can configure and a description of what they do:**\n"""
+    for k,v in command_descriptions.items():
+        cur_str = f"`{k}`: {v}"
+        if len(cur_msg) + len(cur_str) >= 2000:
+            all_messages.append(cur_msg)
+            cur_msg = ""
+        cur_msg += cur_str + "\n"
+    all_messages.append(cur_msg)
+    return all_messages
+                    
 
 
 
@@ -284,13 +284,6 @@ def get_guild_settings(ctx):
         return GUILD_SETTINGS[ctx]
     return GUILD_SETTINGS[str(ctx.guild.id)]
 
-def has_guild_settings(ctx) -> bool:
-    global GUILD_SETTINGS
-    if isinstance(ctx, str):
-        return ctx in GUILD_SETTINGS
-    if ctx.guild is None:
-        return False
-    return str(ctx.guild.id) in GUILD_SETTINGS
 
 async def hasroles(ctx, settings=None):
     if ctx.guild is None:
@@ -309,46 +302,6 @@ async def hasroles(ctx, settings=None):
 def has_roles_check():
     return commands.check(hasroles)
 
-def has_guild_settings_check():
-    return commands.check(check_has_guild_settings)
-
-async def check_has_guild_settings(ctx):
-    global GUILD_SETTINGS
-    if not has_guild_settings(ctx):
-        raise NoGuildSettings("No guild settings")
-    return True
-    
-def save_all_guild_settings():
-    global GUILD_SETTINGS
-    pkl_dump_path = "guildsettings_backup.pkl"
-    with open(pkl_dump_path, "wb") as pickle_out:
-        try:
-            p.dump(GUILD_SETTINGS, pickle_out)
-        except:
-            print("Could not dump pickle for guild settings.")
-            
-def load_all_guild_settings():
-    global GUILD_SETTINGS
-    try:
-        with open("guildsettings_backup.pkl", "rb") as pickle_in:
-            try:
-                temp = p.load(pickle_in)
-                if temp == None:
-                    temp = defaultdict(lambda: GuildSettings())
-                GUILD_SETTINGS = temp
-            except:
-                print("Could not read in pickle for guildsettings_backup.pkl data.")
-                GUILD_SETTINGS = defaultdict(lambda: GuildSettings())
-    except:
-        print("guildsettings_backup.pkl does not exist, so no guild settings loaded in. Will create when a guild makes settings.")         
-        GUILD_SETTINGS = defaultdict(lambda: GuildSettings())
-        
-    version_1_patch(GUILD_SETTINGS)
-    version_2_patch(GUILD_SETTINGS)
-    version_3_patch(GUILD_SETTINGS)
-
-
-
         
 class Settings(commands.Cog):
     def __init__(self, bot):
@@ -358,6 +311,7 @@ class Settings(commands.Cog):
 
     @commands.command()
     @commands.guild_only()
+    @carrot_prohibit_check()
     @commands.cooldown(1, 30, commands.BucketType.member)
     @has_guild_settings_check()
     @has_roles_check()
@@ -370,6 +324,7 @@ class Settings(commands.Cog):
             
     @commands.command()
     @commands.guild_only()
+    @carrot_prohibit_check()
     @commands.cooldown(1, 30, commands.BucketType.member)
     @has_roles_check()
     async def queuebot_settings_help(self, ctx):
@@ -381,11 +336,13 @@ class Settings(commands.Cog):
     @commands.command()
     @commands.max_concurrency(number=1,wait=True)
     @commands.guild_only()
+    @carrot_prohibit_check()
     @commands.cooldown(1, 5, commands.BucketType.member)
     @has_roles_check()
     async def queuebot_setup(self, ctx, setting_name:str, setting_value:str):
         """Changes how Queuebot is currently configured - !queuebot_settings_help to learn how to use"""
         guild_settings = get_guild_settings(ctx)
+        guild_settings.set_guild_id(str(ctx.guild.id))
         if setting_name not in guild_settings:
             await ctx.send(f"`{setting_name}` is not a valid setting. Do `!queuebot_settings_help` for what you can configure.")
             return
@@ -411,7 +368,84 @@ class Settings(commands.Cog):
                 info_text = "An unknown error occurred."
             await ctx.send(info_text)
             
+            
+            
+            
+            
 
+def version_1_patch(all_guild_settings):
+    temp_guild_settings = GuildSettings()
+    for guild_setting in all_guild_settings.values():
+        if 'rating_command_primary_rating_embed_title' not in guild_setting.__dict__:
+            guild_setting.rating_command_primary_rating_embed_title = temp_guild_settings.rating_command_primary_rating_embed_title
+        if 'rating_command_secondary_rating_embed_title' not in guild_setting.__dict__:
+            guild_setting.rating_command_secondary_rating_embed_title = temp_guild_settings.rating_command_secondary_rating_embed_title
+        
+        guild_setting.type_mapping['rating_command_primary_rating_embed_title'] = str
+        guild_setting.type_mapping['rating_command_secondary_rating_embed_title'] = str
+
+def version_2_patch(all_guild_settings):
+    for guild_setting in all_guild_settings.values():
+        if 'primary_leaderboard_type' in guild_setting.__dict__:
+            guild_setting.primary_leaderboard_name = guild_setting.primary_leaderboard_type
+            del guild_setting.__dict__['primary_leaderboard_type']
+        if 'secondary_leaderboard_type' in guild_setting.__dict__:
+            guild_setting.secondary_leaderboard_name = guild_setting.secondary_leaderboard_type
+            del guild_setting.__dict__['secondary_leaderboard_type']
+        
+        guild_setting.type_mapping['primary_leaderboard_name'] = str
+        guild_setting.type_mapping['secondary_leaderboard_name'] = str
+        if 'primary_leaderboard_type' in guild_setting.type_mapping:
+            del guild_setting.type_mapping['primary_leaderboard_type']
+        if 'secondary_leaderboard_type' in guild_setting.type_mapping:
+            del guild_setting.type_mapping['secondary_leaderboard_type']
+            
+def version_3_patch(all_guild_settings):
+    temp_guild_settings = GuildSettings()
+    for guild_setting in all_guild_settings.values():
+        if 'show_rating' not in guild_setting.__dict__:
+            guild_setting.show_rating = temp_guild_settings.show_rating
+        
+        guild_setting.type_mapping['show_rating'] = bool
+        
+def version_4_patch(all_guild_settings):
+    for guild_id, guild_setting in all_guild_settings.items():
+        if 'guild_id' not in guild_setting.__dict__:
+            guild_setting.guild_id = guild_id
+        
+        
+def save_all_guild_settings():
+    global GUILD_SETTINGS
+    pkl_dump_path = "guildsettings_backup.pkl"
+    with open(pkl_dump_path, "wb") as pickle_out:
+        try:
+            p.dump(GUILD_SETTINGS, pickle_out)
+        except:
+            print("Could not dump pickle for guild settings.")
+            
+
+def load_all_guild_settings():
+    global GUILD_SETTINGS
+    try:
+        with open("guildsettings_backup.pkl", "rb") as pickle_in:
+            try:
+                temp = p.load(pickle_in)
+                if temp == None:
+                    temp = defaultdict(lambda: GuildSettings())
+                GUILD_SETTINGS = temp
+            except:
+                print("Could not read in pickle for guildsettings_backup.pkl data.")
+                GUILD_SETTINGS = defaultdict(lambda: GuildSettings())
+    except:
+        print("guildsettings_backup.pkl does not exist, so no guild settings loaded in. Will create when a guild makes settings.")         
+        GUILD_SETTINGS = defaultdict(lambda: GuildSettings())
+        
+    version_1_patch(GUILD_SETTINGS)
+    version_2_patch(GUILD_SETTINGS)
+    version_3_patch(GUILD_SETTINGS)
+    version_4_patch(GUILD_SETTINGS)
+    
+    
         
 def setup(bot):
     load_all_guild_settings()

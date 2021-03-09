@@ -13,8 +13,13 @@ import aiohttp
 import gspread
 from collections import namedtuple, defaultdict
 import dill as p
+from ExtraChecks import owner_or_permissions, carrot_prohibit_check, exception_on_not_lounge
 
 gc = gspread.service_account(filename='credentials.json')
+
+LOUNGE_RT_STATS_RANGE = "B:K"
+LOUNGE_CT_STATS_RANGE = "B:K"
+LOUNGE_NAME_COLUMN = 1
 
 
 
@@ -29,13 +34,6 @@ Spreadsheet_Data = namedtuple('Spreadsheet_Data', 'primary_sheet secondary_sheet
 Guild_Rating_Data = namedtuple('Guild_Rating_Data', 'using_sheet sheet_data website_data', defaults=[True, Spreadsheet_Data(), Spreadsheet_Data()])
 
 
-def owner_or_permissions(**perms):
-    original = commands.has_permissions(**perms).predicate
-    async def extended_check(ctx):
-        if ctx.guild is None:
-            return False
-        return ctx.author.id == 706120725882470460 or await original(ctx)
-    return commands.check(extended_check)
 
 
 class GuildRating():
@@ -174,6 +172,71 @@ class GuildRating():
             if ctx is not None:
                 await ctx.send(info_str)
         return True 
+    
+    async def sheet_data_pull(self, ctx, sheet_range=None, is_primary_leaderboard=True, is_primary_rating=True):
+        ratings = self.sheet_ratings[is_primary_leaderboard][is_primary_rating]
+        if ratings is None:
+            await ctx.send("Cannot pull data because the sheets were not set up properly. Contact an admin and tell them to use `!rating_help` to set up the sheets correctly.")
+            return False
+        
+        sheet_data = (self.guild_rating.sheet_data.primary_sheet if is_primary_leaderboard\
+                          else self.guild_rating.sheet_data.secondary_sheet)
+        sheet = sheet_data.primary_rating if is_primary_rating else sheet_data.secondary_rating
+        spreadsheet_range = sheet.sheet_range if sheet_range is None else sheet_range
+        if spreadsheet_range is None:
+            await ctx.send("Cannot pull data because the sheets are not set up properly. Contact an admin and tell them to use `!rating_help` to set up the sheets correctly.")
+            return False 
+        
+        all_mmr_data = None
+        try:
+            all_mmr_data = ratings.get(spreadsheet_range)
+        except: #numerous failure types can occur, but they all mean the same thing: we didn't get out data
+            await ctx.send("Cannot pull data. This can happen because the bot temporarily cannot connect to the sheets. However, it is more likely that the sheets were not set up properly. Contact an admin and tell them to use `!rating_help` to set up the sheets correctly if this issue does not resolve itself.")
+            return False
+        #Check for corrupt data
+        if not isinstance(all_mmr_data, gspread.models.ValueRange):
+            await ctx.send("Received bad data from the spreadsheet. Wait and try again. If the issue persists, you should DM Bad Wolf.")
+            return False
+        
+        if all_mmr_data is None: #sanity check
+            return False
+        return all_mmr_data
+    
+    async def lounge_stats(self, ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
+        if len(members) == 0:
+            return {}
+        using_str = isinstance(members[0], str)
+        
+        member_stats = dict(zip(members, [False]*len(members)))
+        names = [member.display_name.lower().replace(" ", "") for member in members] if not using_str else [member.lower().replace(" ", "") for member in members]
+        sheet_range = LOUNGE_RT_STATS_RANGE if is_primary_leaderboard else LOUNGE_CT_STATS_RANGE
+        all_data = await self.sheet_data_pull(ctx, sheet_range, is_primary_leaderboard=is_primary_leaderboard, is_primary_rating=is_primary_rating)
+        
+        header_info = all_data[0][0:LOUNGE_NAME_COLUMN] + all_data[0][LOUNGE_NAME_COLUMN+1:]
+        for player_data in all_data[1:]:
+            #Checking for corrupt data
+            if not isinstance(player_data, list):
+                continue
+            if (len(player_data)-1) != len(header_info):
+                continue
+            if not (isinstance(player_data[LOUNGE_NAME_COLUMN], str)):
+                continue
+            this_name = player_data[LOUNGE_NAME_COLUMN].lower().replace(" ", "")
+            if this_name not in names:
+                continue
+            
+            #We found a match
+            stats_data = player_data[0:LOUNGE_NAME_COLUMN] + player_data[LOUNGE_NAME_COLUMN+1:]
+            stats_data = list(zip(header_info, stats_data))
+            found_member = members[names.index(this_name)]
+            member_stats[found_member] = False if stats_data is None else stats_data
+            if using_str:
+                temp = member_stats[found_member]
+                del member_stats[found_member]
+                member_stats[player_data[LOUNGE_NAME_COLUMN]] = temp
+            
+        return member_stats
+        
         
     async def google_sheets_mmr(self, ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
         if len(members) == 0:
@@ -182,29 +245,8 @@ class GuildRating():
         
         member_ratings = dict(zip(members, [False]*len(members)))
         names = [member.display_name.lower().replace(" ", "") for member in members] if not using_str else [member.lower().replace(" ", "") for member in members]
-        ratings = self.sheet_ratings[is_primary_leaderboard][is_primary_rating]
-        if ratings is None:
-            await ctx.send("Cannot pull mmr because the sheets were not set up properly. Contact an admin and tell them to use `!rating_help` to set up the sheets correctly.")
-            return False
-        
-        
-        sheet_data = (self.guild_rating.sheet_data.primary_sheet if is_primary_leaderboard\
-                          else self.guild_rating.sheet_data.secondary_sheet)
-        sheet = sheet_data.primary_rating if is_primary_rating else sheet_data.secondary_rating
-        spreadsheet_range = sheet.sheet_range
-        if spreadsheet_range is None:
-            await ctx.send("Cannot pull mmr because the sheets are not set up properly. Contact an admin and tell them to use `!rating_help` to set up the sheets correctly.")
-            return False 
-                
-        try:
-            all_mmr_data = ratings.get(spreadsheet_range)
-        except: #numerous failure types can occur, but they all mean the same thing: we didn't get out data
-            await ctx.send("Cannot pull mmr. This can happen because the bot temporarily cannot connect to the sheets. However, it is more likely that the sheets were not set up properly. Contact an admin and tell them to use `!rating_help` to set up the sheets correctly if this issue does not resolve itself.")
-            return False
-        #Check for corrupt data
-        if not isinstance(all_mmr_data, gspread.models.ValueRange):
-            await ctx.send("Received bad data from the spreadsheet. Could not pull mmr. Wait and try again. If the issue persists, you should DM Bad Wolf.")
-            return False
+
+        all_mmr_data = await self.sheet_data_pull(ctx, is_primary_leaderboard=is_primary_leaderboard, is_primary_rating=is_primary_rating)
         
         check_value = None
         for player_data in all_mmr_data:
@@ -385,10 +427,18 @@ class Elo(commands.Cog):
         else:
             return await self.guild_sheets[str(ctx.guild.id)].mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         
+    async def stats(self, ctx, members, is_primary_leaderboard=True, is_primary_rating=True):
+        await exception_on_not_lounge(ctx) #Raises a silent except if not lounge
+        if str(ctx.guild.id) not in self.guild_sheets:
+            await ctx.send("A server admin needs to set up your rating system. Have a server admin do `!rating_help` for help.")
+        else:
+            return await self.guild_sheets[str(ctx.guild.id)].lounge_stats(ctx, members, is_primary_leaderboard, is_primary_rating)
+        
         
     @commands.command()
     @commands.cooldown(1, 5, commands.BucketType.member)
     @commands.guild_only()
+    @carrot_prohibit_check()
     @commands.max_concurrency(number=1,wait=True)
     @owner_or_permissions(administrator=True)
     async def set(self, ctx, which_sheet: str, which_leaderboard: str, item_to_set:str, setting:str):
@@ -401,6 +451,7 @@ class Elo(commands.Cog):
     @commands.command()
     @commands.cooldown(1, 5, commands.BucketType.member)
     @commands.guild_only()
+    @carrot_prohibit_check()
     @commands.max_concurrency(number=1,wait=True)
     @owner_or_permissions(administrator=True)
     async def rating_settings(self, ctx):
@@ -410,6 +461,7 @@ class Elo(commands.Cog):
     @commands.command()
     @commands.cooldown(1, 10, commands.BucketType.member)
     @commands.guild_only()
+    @carrot_prohibit_check()
     @commands.max_concurrency(number=1,wait=True)
     @owner_or_permissions(administrator=True)
     async def connect(self, ctx):
@@ -421,6 +473,7 @@ class Elo(commands.Cog):
     @commands.command()
     @commands.cooldown(1, 5, commands.BucketType.member)
     @commands.guild_only()
+    @carrot_prohibit_check()
     @commands.max_concurrency(number=1,wait=True)
     @owner_or_permissions(administrator=True)
     async def rating_help(self, ctx):
