@@ -13,7 +13,10 @@ import aiohttp
 import gspread
 from collections import namedtuple, defaultdict
 import dill as p
-from ExtraChecks import owner_or_permissions, carrot_prohibit_check, exception_on_not_lounge
+from ExtraChecks import owner_or_permissions, carrot_prohibit_check, exception_on_not_lounge, guild_manually_managed_for_elo
+import Shared
+from datetime import datetime
+import unicodedata
 
 gc = gspread.service_account(filename='credentials.json')
 
@@ -22,6 +25,16 @@ LOUNGE_CT_STATS_RANGE = "B:K"
 LOUNGE_NAME_COLUMN = 1
 
 
+
+
+
+LORENZI_WEBSITE_DATA_API = "https://gb.hlorenzi.com/api/v1/graphql"
+MK7_GRAPHQL_PAYLOAD = """{
+    team(teamId: "gWsHAI")
+    {
+        players {name, rating}
+    }
+}"""
 
 
 Website_JSON_Framer = namedtuple('Website_JSON_Framer', 'name_name primary_rating_name secondary_rating_name')
@@ -35,6 +48,91 @@ Guild_Rating_Data = namedtuple('Guild_Rating_Data', 'using_sheet sheet_data webs
 
 
 
+json_cacher = {}
+
+async def lorenzi_fetch(graph_ql_payload):
+    async with aiohttp.ClientSession() as session:
+        headers = {"Content-Type" : "text/plain"}
+        async with session.post(LORENZI_WEBSITE_DATA_API, headers=headers, data=graph_ql_payload) as resp:
+            data = await resp.json()
+            return data
+    
+
+#Uses a 20s caching system to relieve spam load on lorenzi's website
+async def lorenzi_get_JSON(ctx, graph_ql_payload):
+    curTime = datetime.now()
+    if graph_ql_payload not in json_cacher or json_cacher[graph_ql_payload][1] + Shared.CACHING_TIME < curTime:
+        json_cacher[graph_ql_payload] = (await lorenzi_fetch(graph_ql_payload), curTime)
+    return json_cacher[graph_ql_payload][0]
+        
+def format_lorenzi_data_unqiue(json_player_data): 
+    player_dict = {}
+    for player in json_player_data['data']['team']['players']:
+        player_dict[player['name'].lower().replace(" ", "")] = int(player['rating'])
+    return player_dict
+def lorenzi_data_is_corrupt(json_player_data):
+    if not isinstance(json_player_data, dict):
+        return True
+    if 'data' not in json_player_data:
+        return True
+    if not isinstance(json_player_data['data'], dict):
+        return True
+    if 'team' not in json_player_data['data']:
+        return True
+    if not isinstance(json_player_data['data']['team'], dict):
+        return True
+    if 'players' not in json_player_data['data']['team']:
+        return True
+    if not isinstance(json_player_data['data']['team']['players'], list):
+        return True
+    for player in json_player_data['data']['team']['players']:
+        if not isinstance(player, dict) or\
+        'name' not in player or\
+        'rating' not in player or\
+        not isinstance(player['name'], str) or\
+        (not isinstance(player['rating'], float) and not isinstance(player['rating'], int)):
+            return True
+    return False
+
+def result_file_write(stuff):
+    with open("resultFile.txt", "w") as f:
+        f.write(str(stuff))
+def mk7_name_fix(name:str):
+    name = ''.join(c for c in unicodedata.normalize('NFD', name) if unicodedata.category(c) != 'Mn')
+    fixed_name = ''
+    for char in name:
+        if char.isalnum():
+            fixed_name += char
+    return fixed_name.lower()
+
+def match_ratings(all_ratings, members:[discord.Member], name_fix=None):
+    if len(members) == 0:
+        return {}
+    using_str = isinstance(members[0], str)
+        
+    member_ratings = dict(zip(members, [False]*len(members)))
+    names = ['']*len(members)
+    if name_fix is None:
+        names = [member.display_name.lower().replace(" ", "") for member in members] if not using_str else [member.lower().replace(" ", "") for member in members]
+    else:
+        names = [name_fix(member.display_name) for member in members] if not using_str else [name_fix(member) for member in members]
+    check_value = None
+    if lorenzi_data_is_corrupt(all_ratings):
+        return member_ratings
+    fixed_ratings = format_lorenzi_data_unqiue(all_ratings)
+    for name, rating in fixed_ratings.items():
+        #Checking for corrupt data
+        if name not in names:
+            continue
+        #We found a match
+        check_value = rating
+        found_member = members[names.index(name)]
+        member_ratings[found_member] = False if check_value is None else check_value
+    return member_ratings
+
+async def mk7_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
+    json_data = await lorenzi_get_JSON(ctx, MK7_GRAPHQL_PAYLOAD)
+    return match_ratings(json_data, members, name_fix=mk7_name_fix)
 
 class GuildRating():
     def __init__(self):        
@@ -300,11 +398,13 @@ class GuildRating():
         
         
     async def mmr(self, ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
-        if self.guild_rating.using_sheet:
+        if ctx.guild.id == Shared.MK7_GUILD_ID:
+            return await mk7_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
+        elif self.guild_rating.using_sheet:
             return await self.google_sheets_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         else:
             return await self.website_mmr(members, is_primary_leaderboard, is_primary_rating)
-            
+           
     
     async def getJSONData(self, full_url):
         async with aiohttp.ClientSession() as session:
@@ -441,6 +541,7 @@ class Elo(commands.Cog):
     @carrot_prohibit_check()
     @commands.max_concurrency(number=1,wait=True)
     @owner_or_permissions(administrator=True)
+    @guild_manually_managed_for_elo()
     async def set(self, ctx, which_sheet: str, which_leaderboard: str, item_to_set:str, setting:str):
         """Do !rating_help to understand how to use this command"""
         success = await self.guild_sheets[str(ctx.guild.id)].set_guild_rating_setting(ctx, which_sheet, which_leaderboard, item_to_set, setting)
@@ -454,6 +555,7 @@ class Elo(commands.Cog):
     @carrot_prohibit_check()
     @commands.max_concurrency(number=1,wait=True)
     @owner_or_permissions(administrator=True)
+    @guild_manually_managed_for_elo()
     async def rating_settings(self, ctx):
         """Displays the settings for how rating is pulled"""
         await self.guild_sheets[str(ctx.guild.id)].send_settings(ctx, is_new=False)
@@ -464,6 +566,7 @@ class Elo(commands.Cog):
     @carrot_prohibit_check()
     @commands.max_concurrency(number=1,wait=True)
     @owner_or_permissions(administrator=True)
+    @guild_manually_managed_for_elo()
     async def connect(self, ctx):
         """Run this after you change settings and want to refresh your connection."""
         msg = await ctx.send("Testing connection...")
@@ -476,6 +579,7 @@ class Elo(commands.Cog):
     @carrot_prohibit_check()
     @commands.max_concurrency(number=1,wait=True)
     @owner_or_permissions(administrator=True)
+    @guild_manually_managed_for_elo()
     async def rating_help(self, ctx):
         """Tutorial for how to set up the bot with elo on sheets"""
         for i in range(5):

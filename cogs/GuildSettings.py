@@ -9,12 +9,13 @@ from datetime import timedelta
 import dill as p
 from CustomExceptions import NoGuildSettings
 from ExtraChecks import carrot_prohibit_check
+from Shared import QUEUEBOT_INVITE_LINK
 
 class GuildSettings():
     def __init__(self):
         self._guild_id = 1
-        self.rating_name = "elo" #Done
-        self.secondary_rating_name = "elo2" #Done
+        self.primary_rating_command = "elo" #Done
+        self.secondary_rating_command = "elo2" #Done
         self.primary_leaderboard_name = "leaderboard1"
         self.secondary_leaderboard_on = False
         self.secondary_leaderboard_name = "leaderboard2"
@@ -22,6 +23,8 @@ class GuildSettings():
         self.secondary_leaderboard_secondary_rating_on = False
         self.primary_rating_display_text = ""
         self.secondary_rating_display_text = ""
+        self.primary_rating_description_text = ""
+        self.secondary_rating_description_text = ""
         self.primary_leaderboard_num_secondary_players = 0
         self.secondary_leaderboard_num_secondary_players = 0
         #This is the amount of time that players have to queue in the joining channel before Queuebot closes the channel and makes the rooms
@@ -32,7 +35,7 @@ class GuildSettings():
         self.create_voice_channels = True #Done
         self.roles_have_power = set() #Done
         
-        self.send_table_text = True
+        self.send_scoreboard_text = True
         self.room_open_time = 10
         self.lockdown_on = True #Done
         
@@ -43,8 +46,8 @@ class GuildSettings():
         self.rating_command_primary_rating_embed_title = 'Set title with !queuebot_setup'
         self.rating_command_secondary_rating_embed_title = 'Set title with !queuebot_setup'
         self.show_rating = True
-        self.type_mapping = {'rating_name':str,
-                             'secondary_rating_name':str,
+        self.type_mapping = {'primary_rating_command':str,
+                             'secondary_rating_command':str,
                              'primary_leaderboard_name':str,
                              'secondary_leaderboard_on':bool,
                              'secondary_leaderboard_name':str,
@@ -59,7 +62,7 @@ class GuildSettings():
                              'should_ping':bool,
                              'create_voice_channels':bool,
                              'roles_have_power':set,
-                             'send_table_text':bool,
+                             'send_scoreboard_text':bool,
                              'room_open_time':int,
                              'lockdown_on':bool,
                              'roles_can_see_primary_leaderboard_rooms':set,
@@ -68,7 +71,9 @@ class GuildSettings():
                              'rating_command_on':bool,
                              'rating_command_primary_rating_embed_title':str,
                              'rating_command_secondary_rating_embed_title':str,
-                             'show_rating':bool
+                             'show_rating':bool,
+                             'primary_rating_description_text':str,
+                             'secondary_rating_description_text':str
                              }
     def set_guild_id(self, guild_id):
         self._guild_id = guild_id
@@ -77,7 +82,7 @@ class GuildSettings():
 
         
     def __contains__(self, key):
-        if key in {'type_mapping', 'command_descriptions', 'guild_id'}:
+        if key in {'type_mapping', 'command_descriptions', '_guild_id', 'guild_id'}:
             return False
         return key in self.__dict__
     
@@ -226,35 +231,63 @@ async def check_has_guild_settings(ctx):
 
 
 
-command_descriptions = {'rating_name':"This is name for player's ratings (shown when squads sign up, when list is shown, etc). This is **also** the primary rating lookup command name, if you have `rating_command_on` turned on.",
-                     'secondary_rating_name':"This is name for player's secondary ratings (shown when squads sign up, when list is shown, etc). This is **also** the secondary rating lookup command name, if you have `rating_command_on` turned on.",
-                     'primary_leaderboard_name':"This is the name of the primary leaderboard type. It is used to specify which leaderboard should be used when events are started or scheduled. In some cases, it may be used by the rating command if you have `rating_command_on`.",
+command_descriptions = {'primary_rating_command':"This is the name of the **command** to look up and send in an embed player's primary ratings, if you have *rating_command_on* turned on.",
+                     'secondary_rating_command':"If you use a secondary rating, this is the name of the **command** to look up and send in an embed player's secondary ratings, if you have *rating_command_on* turned on.",
+                     'primary_leaderboard_name':"This is the name of the primary leaderboard type. It is used to specify which leaderboard should be used when events are started or scheduled. In some cases, it may be used by the rating command if you have *rating_command_on* turned on.",
                      'secondary_leaderboard_on':"<on/off> - If you have a secondary leaderboard, turn this on. Note: this is not the same as having a secondary rating on your primary leaderboard. This is if you have an entirely different leaderboard.",
-                     'secondary_leaderboard_name':"Description",
-                     'primary_leaderboard_secondary_rating_on':"Description",
-                     'secondary_leaderboard_secondary_rating_on':"Description",
-                     'primary_rating_display_text':"Description",
-                     'secondary_rating_display_text':"Description",
-                     'primary_leaderboard_num_secondary_players':"Description",
-                     'secondary_leaderboard_num_secondary_players':"Description",
+                     'secondary_leaderboard_name':"This is the name of the secondary leaderboard type. It is used to specify which leaderboard should be used when events are started or scheduled. In some cases, it may be used by the rating command if you have *rating_command_on* turned on.",
+                     'primary_leaderboard_secondary_rating_on':"For your primary (or only) leaderboard, turn on if you want to use multiple ratings. This is used in conjunction with the *primary_leaderboard_num_secondary_players* setting, so read that for more details.",
+                     'secondary_leaderboard_secondary_rating_on':"For your secondary leaderboard, turn on if you want to use multiple ratings. This is used in conjunction with the *secondary_leaderboard_num_secondary_players* setting, so read that for more details.",
+                     'primary_rating_display_text':"This is name for player's primary ratings (shown when squads sign up, when list is shown, etc).",
+                     'secondary_rating_display_text':"If you use secondary ratings, this is name for player's secondary ratings (shown when squads sign up, when list is shown, etc).",
+                     'primary_leaderboard_num_secondary_players':"**Read carefully:** You can configure the bot to use multiple ratings at once for teams when they queue. This setting specifies that, when someone creates a squad, the last **x** players tagged will use the secondary rating, and the rest (the author and the other people tagged) will use the primary rating. This setting is for the queues started using the primary leaderboard.",
+                     'secondary_leaderboard_num_secondary_players':"See description for *primary_leaderboard_num_secondary_players*. This setting is the secondary leaderboard version of that setting.",
                      'joining_time':"**Only for events run using the event scheduler:** This is the number of minutes before the event start time that queueing opens up.",
                      'extension_time':"**Only for events run using the event scheduler:** If there aren't a perfect number of teams to evenly split into rooms, this is the number of minutes the bot will extend the queueing time. Note that queueing will end during the extension time if there are a perfect number of teams to fill rooms. Set to 0 if you don't want an extension time.",
                      'should_ping':"<on/off> - Bot should ping @ here when mogi starts",
-                     'create_voice_channels':"Description",
+                     'create_voice_channels':"<on/off> - Bot should create voice channels for each individual team.",
                      'show_rating':"If rating should be shown in the list, or when players do `!squad`, or when teams confirm. When channels are created, ratings will be shown regardless of this setting.",
-                     'roles_have_power':"Description",
-                     'send_table_text':"<on/off> - If the `!scoreboard` command should be sent in the created channels.",
-                     'room_open_time':"Description",
+                     'roles_have_power':"<add/remove> <role name> - this adds or removes a role name. People who have any of these roles will have elevated powers, including starting and ending queues, removing squads, **and modifying queuebot settings**. Note that server administrators will always have power, even if they have none of these roles.",
+                     'send_scoreboard_text':"<on/off> - If the `!scoreboard` command text should be sent in the created channels. Useful if you use 255MP's RandomBot.",
+                     'room_open_time':"This setting is not in use.",
                      'lockdown_on':"<on/off> - Bot should lockdown the queueing channel when rooms are created, and should unlock the channel when Queueing starts",
                      'roles_can_see_primary_leaderboard_rooms':"These roles will be able to see the created rooms (and voice channels if enabled) when a queue for the primary leaderboard is started.",
                      'roles_can_see_secondary_leaderboard_rooms':"These roles will be able to see the created rooms (and voice channels if enabled) when a queue for the secondary leaderboard is started.",
-                     'created_channel_name':"Created channels will start with this name.",
-                     'rating_command_on':"<on/off> - If the rating lookup **command** is turned on. (The rating lookup command is `rating_name`. If you have a second rating, `secondary_rating_name` is the secondary rating lookup command.)",
-                     'rating_command_primary_rating_embed_title':"If `rating_command_on` is on, this sets the what the title of the embed should be when a **primary** rating lookup is performed.",
-                     'rating_command_secondary_rating_embed_title':"If `rating_command_on` is on, this sets the what the title of the embed should be when a **secondary** rating lookup is performed."}
-
-
-def information(self):
+                     'created_channel_name':"Created text and voice channels will start with this name.",
+                     'rating_command_on':"<on/off> - If the rating lookup **command** is turned on. (The rating lookup command is *primary_rating_command*. If you have a second rating, `secondary_rating_command` is the secondary rating lookup command.)",
+                     'rating_command_primary_rating_embed_title':"If `rating_command_on` is on, this sets what the title of the embed should be when a **primary** rating lookup is performed.",
+                     'rating_command_secondary_rating_embed_title':"If `rating_command_on` is on, this sets what the title of the embed should be when a **secondary** rating lookup is performed.",
+                     'primary_rating_description_text':"You'll normally want to leave this blank, unless you have a secondary rating being used in the queue as well. This is a description put in parentheses after player names who queue with the primary rating (shown when squads sign up, when list is shown, etc). It also is put in front of the primary rating name.",
+                     'secondary_rating_description_text':"You'll want to have this set if you have a secondary rating being used in the queue as well. This is a description put in parentheses after player names who queue with the secondary rating (shown when squads sign up, when list is shown, etc). It also is put in front of the secondary rating name."}
+def ensure_command_descriptions_accurate():
+    default_settings = GuildSettings()
+    for setting_name in default_settings.__dict__:
+        if setting_name in default_settings:
+            if setting_name not in command_descriptions:
+                print(setting_name)
+                
+            assert setting_name in command_descriptions
+            
+    for setting_name in command_descriptions:
+        assert setting_name in default_settings
+        
+def ensure_all_guilds_settings_patched():
+    default_settings = GuildSettings()
+    for guild_settings in GUILD_SETTINGS.values():
+        for setting_name in default_settings.__dict__:
+            if setting_name in default_settings: #We overloaded the in function for special functionality
+                assert setting_name in guild_settings
+                assert setting_name in default_settings.type_mapping
+                
+        for setting_name in guild_settings.__dict__:
+            if setting_name in guild_settings: #We overloaded the in function for special functionality
+                assert setting_name in default_settings
+                
+        assert guild_settings.type_mapping == default_settings.type_mapping
+                
+                
+        
+def information():
     all_messages = []
     cur_msg = """Here is the command to configure Queuebot's settings: `!queuebot_setup <setting_name> (add/remove) <setting_value>`
 Here are 6 examples:
@@ -264,6 +297,12 @@ Here are 6 examples:
 `!queuebot_setup rating_name elo`
 `!queuebot_setup roles_have_power add Staff`
 `!queuebot_setup roles_have_power remove Staff`
+
+**For clarification on some of the vague settings**, this is how players are displayed when they confirm:
+- Supposing the player queued with a primary rating: **PLAYERNAME (primary_rating_description_text) (RATING primary_rating_description_text primary_rating_display_text)**
+- Supposing the player queued with a secondary rating: **PLAYERNAME (secondary_rating_description_text) (RATING secondary_rating_description_text primary_rating_display_text)**
+Of course, this is all configurable. Just leave them blank if you don't want these advanced settings to show when squads are shown/lists are shown.
+
 
 **These are the things you can configure and a description of what they do:**\n"""
     for k,v in command_descriptions.items():
@@ -278,11 +317,23 @@ Here are 6 examples:
 
 
 
-def get_guild_settings(ctx):
+def get_guild_settings(ctx) -> GuildSettings:
     global GUILD_SETTINGS
     if isinstance(ctx, str):
         return GUILD_SETTINGS[ctx]
+    if isinstance(ctx, int):
+        return GUILD_SETTINGS[str(ctx)]
     return GUILD_SETTINGS[str(ctx.guild.id)]
+
+def default_settings(ctx) -> GuildSettings:
+    global GUILD_SETTINGS
+    if isinstance(ctx, str):
+        del GUILD_SETTINGS[ctx]
+    if isinstance(ctx, int):
+        del GUILD_SETTINGS[str(ctx)]
+    del GUILD_SETTINGS[str(ctx.guild.id)]
+    
+    return get_guild_settings(ctx)
 
 
 async def hasroles(ctx, settings=None):
@@ -325,7 +376,22 @@ class Settings(commands.Cog):
     @commands.command()
     @commands.guild_only()
     @carrot_prohibit_check()
-    @commands.cooldown(1, 30, commands.BucketType.member)
+    @commands.cooldown(1, 5, commands.BucketType.member)
+    @has_guild_settings_check()
+    @has_roles_check()
+    async def reset_settings(self, ctx):
+        """WARNING: Completely resets your server's settings - cannot undo! This does **not** reset your Sheet settings (those are different settings)."""
+        guild_settings = default_settings(ctx)
+        guild_settings.set_guild_id(str(ctx.guild.id))
+        guild_settings.settings_display()
+        await ctx.send("Settings reset to default.")
+        
+            
+    @commands.command()
+    @commands.guild_only()
+    @carrot_prohibit_check()
+    @commands.cooldown(1, 60, commands.BucketType.member)
+    @commands.cooldown(1, 60, commands.BucketType.guild)
     @has_roles_check()
     async def queuebot_settings_help(self, ctx):
         """Tutorial for how to configure Queuebot"""
@@ -367,9 +433,12 @@ class Settings(commands.Cog):
             if info_text is None:
                 info_text = "An unknown error occurred."
             await ctx.send(info_text)
-            
-            
-            
+        
+    @commands.command()
+    @carrot_prohibit_check()
+    @commands.cooldown(1, 60, commands.BucketType.member)
+    async def queuebot_invite(self, ctx):
+        await ctx.send(QUEUEBOT_INVITE_LINK)
             
             
 
@@ -410,8 +479,80 @@ def version_3_patch(all_guild_settings):
         
 def version_4_patch(all_guild_settings):
     for guild_id, guild_setting in all_guild_settings.items():
-        if 'guild_id' not in guild_setting.__dict__:
-            guild_setting.guild_id = guild_id
+        if '_guild_id' not in guild_setting.__dict__:
+            guild_setting._guild_id = guild_id
+            
+#Adding description text for when players/teams ratings are displayed
+#Also changed one name for clarity
+def version_5_patch(all_guild_settings):        
+    for guild_setting in all_guild_settings.values():
+        if 'primary_leaderboard_rating_description_text' not in guild_setting.__dict__:
+            guild_setting.primary_leaderboard_rating_description_text = ""
+        if 'secondary_leaderboard_rating_description_text' not in guild_setting.__dict__:
+            guild_setting.secondary_leaderboard_rating_description_text = ""
+        
+        guild_setting.type_mapping['primary_leaderboard_rating_description_text'] = str
+        guild_setting.type_mapping['secondary_leaderboard_rating_description_text'] = str
+        
+        
+        if 'send_table_text' in guild_setting.__dict__:
+            guild_setting.send_scoreboard_text = guild_setting.send_table_text
+            del guild_setting.__dict__['send_table_text']
+        
+        guild_setting.type_mapping['send_scoreboard_text'] = bool
+        if 'send_table_text' in guild_setting.type_mapping:
+            del guild_setting.type_mapping['send_table_text']
+            
+            
+def version_6_patch(all_guild_settings):        
+    for guild_setting in all_guild_settings.values():
+        
+        
+        if 'rating_name' in guild_setting.__dict__:
+            guild_setting.primary_rating_command = guild_setting.rating_name
+            del guild_setting.__dict__['rating_name']
+            
+        if 'secondary_rating_name' in guild_setting.__dict__:
+            guild_setting.secondary_rating_command = guild_setting.secondary_rating_name
+            del guild_setting.__dict__['secondary_rating_name']
+            
+        guild_setting.type_mapping['primary_rating_command'] = str
+        guild_setting.type_mapping['secondary_rating_command'] = str
+            
+        
+        if 'rating_name' in guild_setting.type_mapping:
+            del guild_setting.type_mapping['rating_name']
+            
+        if 'secondary_rating_name' in guild_setting.type_mapping:
+            del guild_setting.type_mapping['secondary_rating_name']
+            
+            
+            
+def version_7_patch(all_guild_settings):        
+    for guild_setting in all_guild_settings.values():
+        
+        if 'primary_leaderboard_rating_description_text' in guild_setting.__dict__:
+            guild_setting.primary_rating_description_text = guild_setting.primary_leaderboard_rating_description_text
+            del guild_setting.__dict__['primary_leaderboard_rating_description_text']
+            
+        if 'secondary_leaderboard_rating_description_text' in guild_setting.__dict__:
+            guild_setting.secondary_rating_description_text = guild_setting.secondary_leaderboard_rating_description_text
+            del guild_setting.__dict__['secondary_leaderboard_rating_description_text']
+            
+        guild_setting.type_mapping['secondary_rating_description_text'] = str
+        guild_setting.type_mapping['primary_rating_description_text'] = str
+            
+        
+        if 'primary_leaderboard_rating_description_text' in guild_setting.type_mapping:
+            del guild_setting.type_mapping['primary_leaderboard_rating_description_text']
+            
+        if 'secondary_leaderboard_rating_description_text' in guild_setting.type_mapping:
+            del guild_setting.type_mapping['secondary_leaderboard_rating_description_text']
+            
+            
+
+        
+        
         
         
 def save_all_guild_settings():
@@ -444,6 +585,13 @@ def load_all_guild_settings():
     version_2_patch(GUILD_SETTINGS)
     version_3_patch(GUILD_SETTINGS)
     version_4_patch(GUILD_SETTINGS)
+    version_5_patch(GUILD_SETTINGS)
+    version_6_patch(GUILD_SETTINGS)
+    version_7_patch(GUILD_SETTINGS)
+    
+    ensure_command_descriptions_accurate()
+    ensure_all_guilds_settings_patched()
+    save_all_guild_settings()
     
     
         
