@@ -3,8 +3,8 @@ Created on Mar 7, 2021
 
 @author: willg
 '''
-from CustomExceptions import NoCarrotAllowed, NotLounge
-from Shared import LOUNGE_SERVER_ID, is_lounge
+from CustomExceptions import NoCarrotAllowed, NotLounge, RatingManuallyManaged
+from Shared import LOUNGE_SERVER_ID, is_lounge, RATING_MANUALLY_MANAGED_GUILD_IDS
 from discord.ext import commands
 
 def owner_or_permissions(**perms):
@@ -24,6 +24,14 @@ async def exception_on_not_lounge(ctx):
         raise NotLounge("Not Lounge server.")
     return True
 
+
+def guild_manually_managed_for_elo():
+    return commands.check(is_rating_manually_managed)
+
+async def is_rating_manually_managed(ctx):
+    if ctx.guild.id in RATING_MANUALLY_MANAGED_GUILD_IDS:
+        raise RatingManuallyManaged("Carrot prefix not allowed.")
+    return True
         
         
 

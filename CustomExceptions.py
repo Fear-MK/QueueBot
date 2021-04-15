@@ -14,3 +14,6 @@ class NoCarrotAllowed(CommandError):
 
 class NotLounge(CommandError):
     pass
+
+class RatingManuallyManaged(CommandError):
+    pass

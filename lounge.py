@@ -3,7 +3,7 @@ import json
 import discord
 from cogs.Queue import elo_check
 from itertools import cycle
-from CustomExceptions import NoGuildSettings, NoCarrotAllowed, NotLounge
+from CustomExceptions import NoGuildSettings, NoCarrotAllowed, NotLounge, RatingManuallyManaged
 
 
 bot = commands.Bot(owner_id=706120725882470460, command_prefix=('!', '^'), case_insensitive=True, intents=discord.Intents.all())
@@ -42,7 +42,6 @@ async def on_command_error(ctx, error):
                        % error.retry_after)).delete(delay=5)
         return
     
-    #TODO: Need to display the roles that they must have, just displays %s
     if isinstance(error, commands.MissingAnyRole):
         await(await ctx.send(f"You either need to be a server administrator, or have one of the following roles to use this command: `{', '.join(error.missing_roles)}`",
                              )
@@ -79,6 +78,13 @@ async def on_command_error(ctx, error):
         return
     
     if isinstance(error, NotLounge):
+        return
+    
+    if isinstance(error, RatingManuallyManaged):
+        try:
+            await ctx.send("You cannot run this command because this server's rating settings are manually managed by Bad Wolf. If you need assitance, please contact Bad Wolf #1023 on Discord.")
+        except discord.Forbidden:
+            pass
         return
     
     
