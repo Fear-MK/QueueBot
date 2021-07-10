@@ -1,11 +1,4 @@
-# every lounge is different so this file will probably
-# have to be completely rewritten for each server.
-# my implementation is here as an example; gspread is only
-# needed if you get MMR from a spreadsheet.
-
-# The important part is that the function returns False
-# if a player's MMR can't be found,
-# and returns the player's MMR otherwise
+# This file handles multiple types of mmr setups. It can handle Lorenzi's gameboard mmr, google sheets mmr, and mmr obtained through JSON (MKW Lounge)
 
 import discord
 from discord.ext import commands
