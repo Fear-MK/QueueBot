@@ -1,0 +1,5 @@
+P.S. You can do `!rating_settings` to see the current settings. **If you want Queuebot to allow people to Queue without having a rating system, do:** `!use_rating no`
+
+**__IMPORTANT:__** On the queueing **Channel Category**, Queuebot must have these permissions Green Checkmarked: View Channel, Manage Channels, Manage Permissions, Send Messages
+It's difficult to explain why, but if you don't have these, Queuebot won't work properly. (It will lock itself out of the channels it created.) Category Permissions are copied to created channels, then Queuebot adds Roles that you have specified in your settings and the players for the room.
+Also, for your queueing channel, you should Green Checkmark Send Messages for Queuebot. (That way, if you have Queuebot's lockdown setting enabled, you won't lock Queuebot out of the channel.)

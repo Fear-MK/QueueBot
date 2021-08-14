@@ -10,5 +10,3 @@ Concluding, you need to make sure that the bot has access to these spreadsheet(s
 Finally, you need to run `!connect` once you're finished with everything. This will make the bot connect to the spreadsheets. It can detect some early problems with the setup, but not all problems. If it's successful, I'd advise trying a queue just to make sure. If you every change your settings in the future, you do need to run `!connect` again.
 
 That's it. Go have fun!
-
-P.S. You can do `!rating_settings` to see the current settings. Also, **if you want Queuebot to allow people to Queue without having a rating system, do:** `!use_rating no`
