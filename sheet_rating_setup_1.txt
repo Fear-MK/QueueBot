@@ -11,4 +11,4 @@ Finally, you need to run `!connect` once you're finished with everything. This w
 
 That's it. Go have fun!
 
-P.S. You can do `!rating_settings` to see the current settings.
+P.S. You can do `!rating_settings` to see the current settings. Also, **if you want Queuebot to allow people to Queue without having a rating system, do:** `!use_rating no`

@@ -1,4 +1,11 @@
-# This file handles multiple types of mmr setups. It can handle Lorenzi's gameboard mmr, google sheets mmr, and mmr obtained through JSON (MKW Lounge)
+# every lounge is different so this file will probably
+# have to be completely rewritten for each server.
+# my implementation is here as an example; gspread is only
+# needed if you get MMR from a spreadsheet.
+
+# The important part is that the function returns False
+# if a player's MMR can't be found,
+# and returns the player's MMR otherwise
 
 import discord
 from discord.ext import commands
@@ -23,7 +30,7 @@ LOUNGE_NAME_COLUMN = 1
 
 LORENZI_WEBSITE_DATA_API = "https://gb.hlorenzi.com/api/v1/graphql"
 MK7_GRAPHQL_PAYLOAD = """{
-    team(teamId: "gWsHAI")
+    team(teamId: "3jRk9D")
     {
         players {name, rating}
     }
@@ -37,7 +44,7 @@ Website_Data = namedtuple('Website_Data', 'primary_data secondary_data')
 Sheet_ = namedtuple('Sheet_', 'sheet_name sheet_range', defaults=[None, None])
 Sheet_Data = namedtuple('Sheet_Data', 'sheet_id primary_rating secondary_rating', defaults=[None, Sheet_(), Sheet_()])
 Spreadsheet_Data = namedtuple('Spreadsheet_Data', 'primary_sheet secondary_sheet', defaults=[Sheet_Data(), Sheet_Data()])
-Guild_Rating_Data = namedtuple('Guild_Rating_Data', 'using_sheet sheet_data website_data', defaults=[True, Spreadsheet_Data(), Spreadsheet_Data()])
+Guild_Rating_Data = namedtuple('Guild_Rating_Data', 'using_rating using_sheet sheet_data website_data', defaults=[True, True, Spreadsheet_Data(), Spreadsheet_Data()])
 
 
 
@@ -193,6 +200,10 @@ class GuildRating():
         return True 
         
     async def set_up_system(self, ctx=None):
+        if not self.guild_rating.using_rating:
+            if ctx is not None:
+                await ctx.send("Not using a rating.")
+            return False
         if self.guild_rating.using_sheet:
             if self.guild_rating.sheet_data.primary_sheet.sheet_id is None:
                 if ctx is not None:
@@ -302,6 +313,8 @@ class GuildRating():
         names = [member.display_name.lower().replace(" ", "") for member in members] if not using_str else [member.lower().replace(" ", "") for member in members]
         sheet_range = LOUNGE_RT_STATS_RANGE if is_primary_leaderboard else LOUNGE_CT_STATS_RANGE
         all_data = await self.sheet_data_pull(ctx, sheet_range, is_primary_leaderboard=is_primary_leaderboard, is_primary_rating=is_primary_rating)
+        if all_data is False:
+            return member_stats
         
         header_info = all_data[0][0:LOUNGE_NAME_COLUMN] + all_data[0][LOUNGE_NAME_COLUMN+1:]
         for player_data in all_data[1:]:
@@ -338,7 +351,8 @@ class GuildRating():
         names = [member.display_name.lower().replace(" ", "") for member in members] if not using_str else [member.lower().replace(" ", "") for member in members]
 
         all_mmr_data = await self.sheet_data_pull(ctx, is_primary_leaderboard=is_primary_leaderboard, is_primary_rating=is_primary_rating)
-        
+        if all_mmr_data is False:
+            return member_ratings
         check_value = None
         for player_data in all_mmr_data:
             #Checking for corrupt data
@@ -391,6 +405,8 @@ class GuildRating():
         
         
     async def mmr(self, ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
+        if not self.guild_rating.using_rating:
+            return {member : 0 for member in members}
         if ctx.guild.id == Shared.MK7_GUILD_ID:
             return await mk7_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         elif self.guild_rating.using_sheet:
@@ -432,6 +448,25 @@ class GuildRating():
                 return True
         
         return int(playerData["current_mmr"]) < 0
+    
+    async def set_use_rating(self, ctx, yes_or_no:str):
+        yes_or_no = yes_or_no.lower().replace(" ", "")
+        using_rating = None
+        if yes_or_no in {'yes','true','y'}:
+            using_rating = True
+        elif yes_or_no in {'no','false','n'}:
+            using_rating = False
+        else:
+            if ctx is not None:
+                await ctx.send("Put `yes` or `no` for this command. This is to specify if your server will use a rating when people queue up.")
+            return False
+        
+        self.guild_rating = self.guild_rating._replace(using_rating=using_rating)
+        if ctx is not None:
+            await ctx.send(f"Using a rating when queueing: *{'Yes' if using_rating else 'No'}*")
+        return True
+        
+
 
     async def set_guild_rating_setting(self, ctx, which_sheet: str, which_leaderboard: str, item_to_set:str, setting:str):
         setting = " ".join(ctx.message.content.split(" ")[4:])
@@ -482,30 +517,41 @@ class GuildRating():
     async def send_settings(self, ctx, is_new=False):
         spreadsheet_base_url = "https://docs.google.com/spreadsheets/d/"
         to_send = "**New Settings:**\n\n" if is_new else ""
-        to_send += "Using Google Spreadsheets: *" + ("Yes" if self.guild_rating.using_sheet else "No") + "*\n"
-        to_send += "\n**Primary Sheet Info:**\n"
-        to_send += f"\u200b\t- Spreadsheet link: {'`'+spreadsheet_base_url + self.guild_rating.sheet_data.primary_sheet.sheet_id +'`' if self.guild_rating.sheet_data.primary_sheet.sheet_id is not None else '*No sheet id set*'}\n"
-        to_send += "\u200b\t*Primary Rating Info:*\n"
-        to_send += f"\u200b\t\t- Sheet tab name: *{self.guild_rating.sheet_data.primary_sheet.primary_rating.sheet_name}*\n"
-        to_send += f"\u200b\t\t- Cell range: *{self.guild_rating.sheet_data.primary_sheet.primary_rating.sheet_range}*\n"
-        to_send += "\u200b\t*Secondary Rating Info:*\n"
-        to_send += f"\u200b\t\t- Sheet tab name: *{self.guild_rating.sheet_data.primary_sheet.secondary_rating.sheet_name}*\n"
-        to_send += f"\u200b\t\t- Cell range: *{self.guild_rating.sheet_data.primary_sheet.secondary_rating.sheet_range}*\n"
-
-        to_send += "\n**Secondary Sheet Info:**\n"
-        to_send += f"\u200b\t- Spreadsheet link: {'`'+spreadsheet_base_url + self.guild_rating.sheet_data.secondary_sheet.sheet_id +'`' if self.guild_rating.sheet_data.secondary_sheet.sheet_id is not None else '*No sheet id set*'}\n"
-        to_send += "\u200b\t*Primary Rating Info:*\n"
-        to_send += f"\u200b\t\t- Sheet tab name: *{self.guild_rating.sheet_data.secondary_sheet.primary_rating.sheet_name}*\n"
-        to_send += f"\u200b\t\t- Cell range: *{self.guild_rating.sheet_data.secondary_sheet.primary_rating.sheet_range}*\n"
-        to_send += "\u200b\t*Secondary Rating Info:*\n"
-        to_send += f"\u200b\t\t- Sheet tab name: *{self.guild_rating.sheet_data.secondary_sheet.secondary_rating.sheet_name}*\n"
-        to_send += f"\u200b\t\t- Cell range: *{self.guild_rating.sheet_data.secondary_sheet.secondary_rating.sheet_range}*\n"
-
+        to_send += f"Using rating when queueing: *{'Yes' if self.guild_rating.using_rating else 'No'}*\n"
+        if self.guild_rating.using_rating:
+            to_send += "Using Google Spreadsheets: *" + ("Yes" if self.guild_rating.using_sheet else "No") + "*\n"
+            to_send += "\n**Primary Sheet Info:**\n"
+            to_send += f"\u200b\t- Spreadsheet link: {'`'+spreadsheet_base_url + self.guild_rating.sheet_data.primary_sheet.sheet_id +'`' if self.guild_rating.sheet_data.primary_sheet.sheet_id is not None else '*No sheet id set*'}\n"
+            to_send += "\u200b\t*Primary Rating Info:*\n"
+            to_send += f"\u200b\t\t- Sheet tab name: *{self.guild_rating.sheet_data.primary_sheet.primary_rating.sheet_name}*\n"
+            to_send += f"\u200b\t\t- Cell range: *{self.guild_rating.sheet_data.primary_sheet.primary_rating.sheet_range}*\n"
+            to_send += "\u200b\t*Secondary Rating Info:*\n"
+            to_send += f"\u200b\t\t- Sheet tab name: *{self.guild_rating.sheet_data.primary_sheet.secondary_rating.sheet_name}*\n"
+            to_send += f"\u200b\t\t- Cell range: *{self.guild_rating.sheet_data.primary_sheet.secondary_rating.sheet_range}*\n"
     
-        to_send += "\nYou must do `!connect` when you're finished and ready to attempt to connect to your spreadsheet(s)."
+            to_send += "\n**Secondary Sheet Info:**\n"
+            to_send += f"\u200b\t- Spreadsheet link: {'`'+spreadsheet_base_url + self.guild_rating.sheet_data.secondary_sheet.sheet_id +'`' if self.guild_rating.sheet_data.secondary_sheet.sheet_id is not None else '*No sheet id set*'}\n"
+            to_send += "\u200b\t*Primary Rating Info:*\n"
+            to_send += f"\u200b\t\t- Sheet tab name: *{self.guild_rating.sheet_data.secondary_sheet.primary_rating.sheet_name}*\n"
+            to_send += f"\u200b\t\t- Cell range: *{self.guild_rating.sheet_data.secondary_sheet.primary_rating.sheet_range}*\n"
+            to_send += "\u200b\t*Secondary Rating Info:*\n"
+            to_send += f"\u200b\t\t- Sheet tab name: *{self.guild_rating.sheet_data.secondary_sheet.secondary_rating.sheet_name}*\n"
+            to_send += f"\u200b\t\t- Cell range: *{self.guild_rating.sheet_data.secondary_sheet.secondary_rating.sheet_range}*\n"
+    
         
-        await ctx.send(to_send)
+            to_send += "\nYou must do `!connect` when you're finished and ready to attempt to connect to your spreadsheet(s)."
             
+        await ctx.send(to_send)
+
+def guild_rating_patch_1(guild_rating_data):
+    if 'using_rating' not in guild_rating_data._fields:
+        new_guild_rating = Guild_Rating_Data(using_rating=True,
+                                             using_sheet=guild_rating_data.using_sheet,
+                                             sheet_data=guild_rating_data.sheet_data,
+                                             website_data=guild_rating_data.website_data)
+        return new_guild_rating
+    return guild_rating_data
+
 class Elo(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -538,6 +584,20 @@ class Elo(commands.Cog):
     async def set(self, ctx, which_sheet: str, which_leaderboard: str, item_to_set:str, setting:str):
         """Do !rating_help to understand how to use this command"""
         success = await self.guild_sheets[str(ctx.guild.id)].set_guild_rating_setting(ctx, which_sheet, which_leaderboard, item_to_set, setting)
+        if success:
+            self.pkl_guild_sheets()
+            await self.guild_sheets[str(ctx.guild.id)].send_settings(ctx, is_new=True)
+            
+    @commands.command()
+    @commands.cooldown(1, 5, commands.BucketType.member)
+    @commands.guild_only()
+    @carrot_prohibit_check()
+    @commands.max_concurrency(number=1,wait=True)
+    @owner_or_permissions(administrator=True)
+    @guild_manually_managed_for_elo()
+    async def use_rating(self, ctx, yes_or_no:str):
+        """If you want to use rating or not. If you're a competitive setting with ratings, this should be true. If you just use this bot to keep track of a list without wanting ratings, put this as false."""
+        success = await self.guild_sheets[str(ctx.guild.id)].set_use_rating(ctx, yes_or_no)
         if success:
             self.pkl_guild_sheets()
             await self.guild_sheets[str(ctx.guild.id)].send_settings(ctx, is_new=True)
@@ -606,17 +666,23 @@ class Elo(commands.Cog):
                     temp = p.load(pickle_in)
                     if temp is not None:
                         for guild_id, guild_rating in temp.items():
+                            guild_rating = guild_rating_patch_1(guild_rating)
                             self.guild_sheets[guild_id].guild_rating = guild_rating
                 except:
                     print("Could not read in pickle for guild_sheets_backup.pkl data.")
                     raise
         except:
             print("guild_sheets_backup.pkl does not exist, so no guild data loaded in. Will create when guilds set their settings.")         
-            
     def connect_all_sheets(self):
         for guild_sheet in self.guild_sheets.values():
             guild_sheet.non_async_set_up_system()
         print("All sheets connected.")
+        
+    async def mogi_bot_defaults(self, ctx):
+        success = await self.guild_sheets[str(ctx.guild.id)].set_use_rating(ctx, 'No')
+        if success:
+            self.pkl_guild_sheets()
+        
 
     
 def setup(bot):

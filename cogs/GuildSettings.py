@@ -207,7 +207,43 @@ class GuildSettings():
     
     def get_parsing_formatted_leaderboard_types(self):
         return [leaderboard_type.lower().strip() for leaderboard_type in self.get_valid_leaderboard_types()]
-
+    
+    def mogi_bot_defaults(self, ctx):
+        self._guild_id = ctx.guild.id
+        self.primary_rating_command = "None" #Done
+        self.secondary_rating_command = "None" #Done
+        self.primary_leaderboard_name = "mogi"
+        self.secondary_leaderboard_on = False
+        self.secondary_leaderboard_name = "None"
+        self.primary_leaderboard_secondary_rating_on = False
+        self.secondary_leaderboard_secondary_rating_on = False
+        self.primary_rating_display_text = ""
+        self.secondary_rating_display_text = ""
+        self.primary_rating_description_text = ""
+        self.secondary_rating_description_text = ""
+        self.primary_leaderboard_num_secondary_players = 0
+        self.secondary_leaderboard_num_secondary_players = 0
+        #This is the amount of time that players have to queue in the joining channel before Queuebot closes the channel and makes the rooms
+        self.joining_time = timedelta(hours=2)
+        self.extension_time = timedelta(minutes=5)
+        
+        self.should_ping = True #Done
+        self.create_voice_channels = False #Done
+        self.roles_have_power = set() #Done
+        
+        self.send_scoreboard_text = True
+        self.room_open_time = 10
+        self.lockdown_on = False #Done
+        
+        self.roles_can_see_primary_leaderboard_rooms = set() #Done
+        self.roles_can_see_secondary_leaderboard_rooms = set() #Done
+        self.created_channel_name = "Room"
+        self.rating_command_on = True
+        self.rating_command_primary_rating_embed_title = 'Set title with !queuebot_setup'
+        self.rating_command_secondary_rating_embed_title = 'Set title with !queuebot_setup'
+        self.show_rating = False
+        save_all_guild_settings()
+        
 GUILD_SETTINGS = defaultdict(GuildSettings)
 
 

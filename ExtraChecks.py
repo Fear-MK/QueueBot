@@ -3,8 +3,8 @@ Created on Mar 7, 2021
 
 @author: willg
 '''
-from CustomExceptions import NoCarrotAllowed, NotLounge, RatingManuallyManaged
-from Shared import LOUNGE_SERVER_ID, is_lounge, RATING_MANUALLY_MANAGED_GUILD_IDS
+from CustomExceptions import NoCarrotAllowed, NotLounge, RatingManuallyManaged, NotBadWolf
+from Shared import LOUNGE_SERVER_ID, is_lounge, RATING_MANUALLY_MANAGED_GUILD_IDS, BAD_WOLF_ID
 from discord.ext import commands
 
 def owner_or_permissions(**perms):
@@ -29,9 +29,18 @@ def guild_manually_managed_for_elo():
     return commands.check(is_rating_manually_managed)
 
 async def is_rating_manually_managed(ctx):
-    if ctx.guild.id in RATING_MANUALLY_MANAGED_GUILD_IDS:
+    if ctx.guild.id in RATING_MANUALLY_MANAGED_GUILD_IDS and ctx.author.id != BAD_WOLF_ID:
         raise RatingManuallyManaged("Carrot prefix not allowed.")
     return True
+
+def badwolf_command_check():
+    return commands.check(is_bad_wolf)
+
+async def is_bad_wolf(ctx):
+    if ctx.author.id != BAD_WOLF_ID:
+        raise NotBadWolf("Author is not Bad Wolf.")
+    return True       
+
         
         
 

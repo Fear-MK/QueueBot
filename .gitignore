@@ -1,0 +1,7 @@
+
+*.pyc
+*.pkl
+credentials.json
+config.json
+.pydevproject
+.project

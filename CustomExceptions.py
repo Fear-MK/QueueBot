@@ -17,3 +17,6 @@ class NotLounge(CommandError):
 
 class RatingManuallyManaged(CommandError):
     pass
+
+class NotBadWolf(CommandError):
+    pass

@@ -8,7 +8,7 @@ Queuebot is highly customizable with rating systems, allowing you to use 2 diffe
 
 This may seem daunting, especially on how to set it up, but I promise all the information is here. Relax, read this a few times, then take a try.
 
-First thing is first, you need to set up a spreadsheet on Google Sheets with Player names in one column, and their corresponding rating in the column next to it.
+First, run the command `!use_rating yes`. Next, you need to set up a spreadsheet on Google Sheets with Player names in one column, and their corresponding rating in the column next to it.
 Next, look at the spreadsheet url. Your spreadsheet ID comes right after **/spreadsheets/d/**
 To set your spreadsheet id for your primary rating system, do `!set primarysheet sheet id <id>` with <id> being that long id in the URL we just talked about.
 

@@ -6,14 +6,17 @@ from datetime import datetime, timedelta
 import dill as p
 from collections import defaultdict
 from cogs import GuildSettings
-from Shared import is_lounge
-from ExtraChecks import carrot_prohibit_check, lounge_only_check
+from Shared import is_lounge, DISCORD_MAX_MESSAGE_LEN
+from ExtraChecks import carrot_prohibit_check, lounge_only_check, badwolf_command_check
 from builtins import staticmethod
 from typing import List
 from statistics import mean
 from math import sqrt
 import random
 from discord.ext.commands.cooldowns import BucketType
+import warnings
+from dateutil.parser import UnknownTimezoneWarning
+from time import sleep
 
 
 
@@ -33,7 +36,7 @@ time_print_formatting = "%B %d, %Y at %I:%M%p Eastern Time"
 #This is so that you don't have to adjust your machine clock to accomodate for your staff
 
 #For example, if my staff is supposed to schedule events in ET and my machine is PST, this number would be 3 since ET is 3 hours ahead of my machine's PST
-TIME_ADJUSTMENT = timedelta(hours=1)
+TIME_ADJUSTMENT = timedelta(hours=3)
 
 
 GUILDS_SCHEDULES = {}
@@ -373,6 +376,7 @@ class IndividualQueue():
         for i in range(numRooms):
             #creating room roles and channels
             roomName = f"{guild_settings.created_channel_name}-{i+1}"
+            
             overwrites = {
                 queue_channel.guild.default_role: discord.PermissionOverwrite(view_channel=False),
                 queue_channel.guild.me: discord.PermissionOverwrite(view_channel=True)
@@ -431,13 +435,16 @@ class IndividualQueue():
                         % (host_str, openTime, startTime))
             roomMsg += mentions
             final_text_channel_overwrites = category.overwrites.copy()
-            final_text_channel_overwrites.update(overwrites)
-            roomChannel = await category.create_text_channel(name=roomName, overwrites=final_text_channel_overwrites)
+            overwrites.update(final_text_channel_overwrites)
+            roomChannel = await category.create_text_channel(name=roomName)
+            
+            await roomChannel.edit(overwrites=overwrites)
             for ind, voice_channel_overwrites in enumerate(all_voice_channel_overwrites, 1):
                 final_voice_channel_overwrites = category.overwrites.copy()
-                final_voice_channel_overwrites.update(voice_channel_overwrites)
+                voice_channel_overwrites.update(final_voice_channel_overwrites)
                 
-                vc = await category.create_voice_channel(name=roomName + "-vc-" + str(ind), overwrites=final_voice_channel_overwrites)
+                vc = await category.create_voice_channel(name=roomName + "-vc-" + str(ind))
+                await vc.edit(overwrites=voice_channel_overwrites)
                 self.channels.append([vc, False])
                 
             self.channels.append([roomChannel, False])
@@ -550,8 +557,7 @@ class IndividualQueue():
         except:
             return
         if self.team_size == 1 and len(members) > 0:
-            await ctx.send("The number of people per team is 1. Don't tag anyone (just !c)."
-                           % (self.team_size-1))
+            await ctx.send("The number of people per team is 1. Don't tag anyone (just !c).")
             return
             
         elif len(members) > 0 and len(members) < self.team_size - 1:
@@ -1061,11 +1067,11 @@ class Queue(commands.Cog):
     @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
-    async def start(self, ctx, track_type:str, team_size: int, teams_per_room:int):
-        """Start a queue in the channel defined by the config file"""
+    async def start(self, ctx, leaderboard_type:str, team_size: int, teams_per_room:int):
+        """Start a queue in this channel. Valid "queue_type"s are in your queuebot settings. "team_size" is the number of players on each team. "teams_per_room" is the number of teams each room and channel will have."""
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         guilds_queues = self.get_guilds_queues(ctx)
-        await self.get_queue_create(ctx, guilds_queues).start(ctx, track_type, team_size, teams_per_room, guild_settings)
+        await self.get_queue_create(ctx, guilds_queues).start(ctx, leaderboard_type, team_size, teams_per_room, guild_settings)
     
     
     @commands.command()
@@ -1074,7 +1080,7 @@ class Queue(commands.Cog):
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def close(self, ctx):
-        """Close the queue so players can't join or drop"""
+        """Close the queue so players can't join or drop. Does not end the queue, however. If you want to end the queue, do !end. !close should be used if you want to close for now and open it (using !open) later on."""
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         guilds_queues = self.get_guilds_queues(ctx)
         await self.get_queue_create(ctx, guilds_queues).close(ctx, guild_settings)
@@ -1085,7 +1091,7 @@ class Queue(commands.Cog):
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def open(self, ctx):
-        """Reopen the queue so that players can join and drop"""
+        """Reopen the queue so that players can join and drop. Use this if you have done !close"""
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         guilds_queues = self.get_guilds_queues(ctx)
         await self.get_queue_create(ctx, guilds_queues).open(ctx, guild_settings)
@@ -1119,7 +1125,7 @@ class Queue(commands.Cog):
     @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     async def pending(self, ctx):
-        """Display the list of confirmed squads for a queue"""
+        """Display the list of unconfirmed squads for a queue"""
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         guilds_queues = self.get_guilds_queues(ctx)
         await self.get_queue_create(ctx, guilds_queues).unconfirmedsquads(ctx, guild_settings)
@@ -1143,6 +1149,7 @@ class Queue(commands.Cog):
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def makeRooms(self, ctx, openTime: int):
+        """Closes the queue, sorts the confirmed teams by their ratings (if applicable), and creates text channels (and voice channels if applicable) for each group of teams."""
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         guilds_queues = self.get_guilds_queues(ctx)
         await self.get_queue_create(ctx, guilds_queues).makeRooms(ctx, openTime, guild_settings)
@@ -1176,7 +1183,7 @@ class Queue(commands.Cog):
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def schedule(self, ctx, queue_channel:discord.TextChannel, leaderboard_type:str, team_size: int, teams_per_room:int, schedule_time:str):
-        """Schedules a room in the future so that the staff doesn't have to be online to open the queue and make the rooms"""
+        """Schedules a room in the future so that the staff doesn't have to be online to open the queue and make the rooms. "queue_channel" is the channel the queue will start in. "leaderboard_type" is your queue type, found in your queuebot settings. "team_size" is the number of players on each team. "teams_per_room" is the number of teams each room/text channel/voice channel (if applicable) will have. schedule_time is a date and time. Do not specify a time zone. The bot uses EASTERN TIME for all events. Convert your day and time to EASTERN TIME first. In your queuebot settings, also make sure that the queueing time and extension time are what you want them to be, as events started with this scheduler use these settings."""
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         scheduled_events = self.scheduled_events[str(ctx.guild.id)]
         was_valid, leaderboard_type_fixed = await IndividualQueue.start_input_validation(ctx, leaderboard_type, team_size, teams_per_room, guild_settings)
@@ -1191,7 +1198,16 @@ class Queue(commands.Cog):
         
         
         try:
-            actual_time = parse(schedule_time)
+            actual_time = None
+            with warnings.catch_warnings(record=True) as w:
+                # Cause all warnings to always be triggered.
+                warnings.simplefilter("always")
+                actual_time = parse(schedule_time)
+                if len(w) > 0 and issubclass(w[-1].category, UnknownTimezoneWarning):
+                    await ctx.send("Timezones confuse me, so please do not give a timezone. All events are EDT. Event not schedule.")
+                    return
+                    
+
             actual_time = actual_time - TIME_ADJUSTMENT
             if queue_channel == None:
                 await ctx.send("I can't see the queue channel, so I can't schedule this event.")
@@ -1244,6 +1260,20 @@ class Queue(commands.Cog):
         self.pkl_schedule()
         
         
+    @commands.command()
+    @commands.guild_only()
+    @carrot_prohibit_check()
+    @GuildSettings.has_guild_settings_check()
+    @GuildSettings.has_roles_check()
+    async def mogi(self, ctx):
+        """This should only be used by servers who have done !easy_mogibot_setup for simple gathering. This just gathers for a mogi in the current channel."""
+        guild_settings = GuildSettings.get_guild_settings(ctx)        
+        guilds_queues = self.get_guilds_queues(ctx)
+        await self.get_queue_create(ctx, guilds_queues).start(ctx, 'mogi', 1, 100, guild_settings)
+    
+    
+        
+        
         
 
     
@@ -1279,10 +1309,42 @@ class Queue(commands.Cog):
     @GuildSettings.has_roles_check()
     async def sortTeams(self, ctx):
         """Backup command if !makerooms doesn't work; doesn't make channels, just sorts teams by elo/rating"""
-        temporary_disabled_command(ctx)
+        await temporary_disabled_command(ctx)
         guild_settings = GuildSettings.get_guild_settings(ctx)
         guilds_queues = self.get_guilds_queues(ctx)
         await guilds_queues.sortTeams(ctx, guild_settings)
+        
+    @commands.command(aliases=['qllu'])
+    @carrot_prohibit_check()
+    @badwolf_command_check()
+    async def queuelist_lineup(self, ctx):
+        """List all Queues"""
+        guild_queue_messages = ['']
+        for guild_id, guilds_individual_queues in self.guildQueues.items():
+            ongoing_queues = sum([1 for queue in guilds_individual_queues.values() if queue.started])
+            cur_guild = self.bot.get_guild(int(guild_id))
+            guild_name = guild_id if cur_guild is None else cur_guild.name
+            guild_queue_messages.append( f"Guild: {guild_name}, {ongoing_queues} ongoing queues\n" )
+            for channel_id, individual_queue in guilds_individual_queues.items():
+                cur_channel = self.bot.get_channel(int(channel_id))
+                channel_name = channel_id if cur_channel is None else cur_channel.name
+                guild_queue_messages.append(f"Channel: {channel_name}, {len(individual_queue.list)} players queued\n\n")
+        
+        condensed_messages = ['']
+        for message_part in guild_queue_messages:
+            if len(message_part) + len(condensed_messages[-1]) >= DISCORD_MAX_MESSAGE_LEN:
+                condensed_messages.append('')
+            condensed_messages[-1] += message_part
+        
+        if len(condensed_messages) == 1 and len(condensed_messages[-1]) == 0:
+            await ctx.send("No ongoing queues.")
+        else:
+            for message in condensed_messages:
+                await ctx.send(message)
+                
+                
+            
+    
     
     
     async def send_stats_embed(self, ctx, is_primary_rating, track_type):
@@ -1331,6 +1393,12 @@ class Queue(commands.Cog):
     @GuildSettings.has_guild_settings_check()
     async def stats(self, ctx, track_type:str):
         await self.send_stats_embed(ctx, True, track_type)
+        
+    async def mogi_bot_defaults(self, ctx):
+        guild_settings = GuildSettings.get_guild_settings(ctx)
+        guild_settings.mogi_bot_defaults(ctx)
+        
+    
         
         
 
