@@ -16,7 +16,7 @@ import dill as p
 from ExtraChecks import owner_or_permissions, carrot_prohibit_check, exception_on_not_lounge, guild_manually_managed_for_elo
 import Shared
 from datetime import datetime
-import unicodedata
+import unidecode
 
 gc = gspread.service_account(filename='credentials.json')
 
@@ -31,6 +31,13 @@ LOUNGE_NAME_COLUMN = 1
 LORENZI_WEBSITE_DATA_API = "https://gb.hlorenzi.com/api/v1/graphql"
 MK7_GRAPHQL_PAYLOAD = """{
     team(teamId: "3jRk9D")
+    {
+        players {name, rating}
+    }
+}"""
+
+MKW_ITEM_RAIN_GRAPHQL_PAYLOAD = """{
+    team(teamId: "Y6sCY2")
     {
         players {name, rating}
     }
@@ -97,13 +104,15 @@ def lorenzi_data_is_corrupt(json_player_data):
 def result_file_write(stuff):
     with open("resultFile.txt", "w") as f:
         f.write(str(stuff))
+        
 def mk7_name_fix(name:str):
-    name = ''.join(c for c in unicodedata.normalize('NFD', name) if unicodedata.category(c) != 'Mn')
+    name = unidecode.unidecode(name)
     fixed_name = ''
     for char in name:
         if char.isalnum():
             fixed_name += char
     return fixed_name.lower()
+mkw_item_rain_name_fix = mk7_name_fix
 
 def match_ratings(all_ratings, members:[discord.Member], name_fix=None):
     if len(members) == 0:
@@ -133,6 +142,10 @@ def match_ratings(all_ratings, members:[discord.Member], name_fix=None):
 async def mk7_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
     json_data = await lorenzi_get_JSON(ctx, MK7_GRAPHQL_PAYLOAD)
     return match_ratings(json_data, members, name_fix=mk7_name_fix)
+
+async def mkw_item_rain_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
+    json_data = await lorenzi_get_JSON(ctx, MKW_ITEM_RAIN_GRAPHQL_PAYLOAD)
+    return match_ratings(json_data, members, name_fix=mkw_item_rain_name_fix)
 
 class GuildRating():
     def __init__(self):        
@@ -409,6 +422,8 @@ class GuildRating():
             return {member : 0 for member in members}
         if ctx.guild.id == Shared.MK7_GUILD_ID:
             return await mk7_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
+        elif ctx.guild.id == Shared.MKW_ITEM_RAIN_LOUNGE:
+            return await mkw_item_rain_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         elif self.guild_rating.using_sheet:
             return await self.google_sheets_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         else:
