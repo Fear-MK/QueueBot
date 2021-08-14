@@ -6,6 +6,7 @@ from itertools import cycle
 from CustomExceptions import NoGuildSettings, NoCarrotAllowed, NotLounge, RatingManuallyManaged
 
 
+
 bot = commands.Bot(owner_id=706120725882470460, command_prefix=('!', '^'), case_insensitive=True, intents=discord.Intents.all())
 STARTED = False
 
@@ -130,6 +131,15 @@ async def statuses():
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
+    if message.content.lower() == "!queuebot_invite" or message.content.lower() == "!invite":
+        try:
+            await message.channel.send("https://discord.com/api/oauth2/authorize?client_id=803378682479640586&permissions=269667344&scope=bot")
+        except:
+            pass
+        return
+    if message.guild is None:
+        return
+    
     await elo_check(bot, message)
     #We overrode bot's on_message function, so we must manually invoke process commands
     await bot.process_commands(message)

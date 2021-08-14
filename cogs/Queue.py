@@ -1153,8 +1153,8 @@ class Queue(commands.Cog):
 
     @commands.command()
     @commands.cooldown(1, 30, commands.BucketType.channel)
-    @commands.bot_has_guild_permissions(manage_channels=True)
     @commands.guild_only()
+    @commands.bot_has_guild_permissions(manage_channels=True)
     @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
