@@ -5,3 +5,4 @@ credentials.json
 config.json
 .pydevproject
 .project
+.settings/org.eclipse.core.resources.prefs
