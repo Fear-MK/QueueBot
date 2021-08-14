@@ -44,7 +44,7 @@ GUILDS_SCHEDULES = {}
 LOUNGE_EXPONENT = 2
 mean_of_sum_of_exponent = lambda numbers:mean(map(lambda num : num ** LOUNGE_EXPONENT, numbers))
 def calculate_lounge_rating(ratings:List[int]):
-    return round(sqrt(mean_of_sum_of_exponent(ratings)))
+    return round(mean(ratings))
 
 
 def calculate_team_rating(ratings:List[int], guild_settings:GuildSettings.GuildSettings):
