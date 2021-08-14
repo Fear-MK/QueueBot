@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import dill as p
 from collections import defaultdict
 from cogs import GuildSettings
-from Shared import is_lounge, DISCORD_MAX_MESSAGE_LEN
+from Shared import is_lounge, DISCORD_MAX_MESSAGE_LEN, isint
 from ExtraChecks import carrot_prohibit_check, lounge_only_check, badwolf_command_check
 from builtins import staticmethod
 from typing import List
@@ -550,7 +550,6 @@ class IndividualQueue():
     
     async def can(self, ctx, members, guild_settings:GuildSettings.GuildSettings):
         """Tag your partners to invite them to a queue or accept a invitation to join a queue"""
-        #can_bag = ctx.invoked_with.lower() in {'cb', 'canbag', 'b', 'bag'}
         try:
             await self.is_started(ctx)
             await self.is_gathering(ctx)
@@ -593,7 +592,7 @@ class IndividualQueue():
                     else:
                         missingPlayers.append(player)
                 #TODO:Come back and fix this - not baggers anymore
-                bagger_str = "as a bagger " if self.waiting[checkWait][ctx.author][2] else ""
+                bagger_str = "as a secondary type of player " if self.waiting[checkWait][ctx.author][2] else ""
                 string = ("Successfully confirmed for your squad %s[%d/%d]\n"
                           % (bagger_str, len(confirmedPlayers), self.team_size))
                 if len(missingPlayers) > 0:
@@ -659,6 +658,7 @@ class IndividualQueue():
         primaryPlayerMMRs = await sheet.mmr(ctx, all_primary_players, self.is_primary_leaderboard)
         
         if primaryPlayerMMRs is False:
+            await ctx.send("There was an error pulling player ratings. How the ratings are pulled may not have been set up correctly, or where they are being pulled from could be down/offline.")
             return
         for player, mmr in primaryPlayerMMRs.items():
             if mmr is False:
@@ -671,6 +671,7 @@ class IndividualQueue():
             
         secondaryPlayerMMRs = await sheet.mmr(ctx, all_secondary_players, self.is_primary_leaderboard, False)
         if secondaryPlayerMMRs is False:
+            await ctx.send("There was an error pulling player ratings. How the ratings are pulled may not have been set up correctly, or where they are being pulled from could be down/offline.")
             return
         for player, mmr in secondaryPlayerMMRs.items():
             if mmr is False:
@@ -1344,55 +1345,7 @@ class Queue(commands.Cog):
                 
                 
             
-    
-    
-    
-    async def send_stats_embed(self, ctx, is_primary_rating, track_type):
-        guild_settings = GuildSettings.get_guild_settings(ctx)
-        is_primary_leaderboard = None
-        if guild_settings.primary_leaderboard_name.lower() == track_type.lower():
-            is_primary_leaderboard = True
-        elif guild_settings.secondary_leaderboard_name.lower() == track_type.lower():
-            is_primary_leaderboard = False
         
-        valid_leaderboard_types = guild_settings.get_valid_leaderboard_types()
-        if is_primary_leaderboard is None:
-            await ctx.send("Put a valid leaderboard type: " + ", ".join(valid_leaderboard_types) + f"\n*Example: !{ctx.invoked_with} {guild_settings.primary_leaderboard_name} Jacob*", delete_after=10)
-            return
-        
-        stats_description = "War Runner Stats" if is_primary_rating else "War Bagger Stats"
-        stats_description_end = (" - " + (guild_settings.primary_leaderboard_name if is_primary_leaderboard else guild_settings.secondary_leaderboard_name)) if guild_settings.secondary_leaderboard_on else ""
-        for_who = [ctx.author.display_name]
-        all_args = ctx.message.content.split()
-        if len(ctx.args[1:]) < len(all_args): #They are trying to look someone up, they provided a name
-            for_who = [" ".join(all_args[len(ctx.args[1:]):])]
-            
-        player_stats_dict = await self.bot.get_cog('Elo').stats(ctx.channel, for_who, is_primary_leaderboard, is_primary_rating)
-        if player_stats_dict is None or len(player_stats_dict) != 1:
-            return
-        player_name, player_stats = next(iter(player_stats_dict.items()))
-        if player_stats is False:
-            await ctx.send(f"Could not find {guild_settings.primary_leaderboard_name if is_primary_leaderboard else guild_settings.secondary_leaderboard_name} {stats_description} for the specified player.", delete_after=30)
-            return
-        
-        await loung_stats_send_with_ranking_icon(ctx, player_name, player_stats, stats_description+stats_description_end, is_primary_rating)
-        
-    
-    @commands.command()
-    @commands.guild_only()
-    @lounge_only_check()
-    @commands.cooldown(1, 30, commands.BucketType.member)
-    @GuildSettings.has_guild_settings_check()
-    async def baggerstats(self, ctx, track_type:str):
-        await self.send_stats_embed(ctx, False, track_type)
-        
-    @commands.command()
-    @commands.guild_only()
-    @lounge_only_check()
-    @commands.cooldown(1, 30, commands.BucketType.member)
-    @GuildSettings.has_guild_settings_check()
-    async def stats(self, ctx, track_type:str):
-        await self.send_stats_embed(ctx, True, track_type)
         
     async def mogi_bot_defaults(self, ctx):
         guild_settings = GuildSettings.get_guild_settings(ctx)
@@ -1473,6 +1426,7 @@ async def elo_check(bot, message: discord.Message):
                 
         playerMMRs = await bot.get_cog('Elo').mmr(message.channel, to_look_up, is_primary_leaderboard, is_primary_rating)
         if playerMMRs is False:
+            await message.channel.send("There was an error pulling player ratings. How the ratings are pulled may not have been set up correctly, or where they are being pulled from could be down/offline.")
             return
         title = guild_settings.rating_command_primary_rating_embed_title if is_primary_rating else guild_settings.rating_command_secondary_rating_embed_title
         if title != "":
@@ -1486,89 +1440,9 @@ async def elo_check(bot, message: discord.Message):
             mmr_str = "Unknown" if rating is False else str(rating)
             embed.add_field(name=name, value=mmr_str, inline=False)
         
-        if is_lounge(message.guild.id):
-            await lounge_mmr_send_with_ranking_icon(message.channel, embed, guild_settings, is_primary_leaderboard, is_primary_rating)
-        else:
-            await safe_send(message.channel, embed=embed, delete_after=30)
 
-lounge_folder_path = ''
-lounge_runner_cutoff_filename = [(999, 'iron.png', "<:Iron:801548182415867954>"),
-                          (1999, 'bronze.png', "<:Bronze:801548182298689546>"),
-                          (3999, 'silver.png', "<:Silver:801548182286762096>"),
-                          (5999, 'gold.png', "<:Gold:801548182747086868>"),
-                          (7999, 'platinum.png', "<:Platinum:801548183372169256>"),
-                          (9999, 'diamond.png', "<:Diamond:801548182319792168>"),
-                          (9999999,'master.png', "<:Master:801548182416261120>")]
-lounge_bagger_cutoff_filename = [(499, 'iron.png', "<:Iron:801548182415867954>"),
-                          (999, 'bronze.png', "<:Bronze:801548182298689546>"),
-                          (1999, 'silver.png', "<:Silver:801548182286762096>"),
-                          (2999, 'gold.png', "<:Gold:801548182747086868>"),
-                          (3999, 'platinum.png', "<:Platinum:801548183372169256>"),
-                          (4999, 'diamond.png', "<:Diamond:801548182319792168>"),
-                          (9999999,'master.png', "<:Master:801548182416261120>")]
+        await safe_send(message.channel, embed=embed, delete_after=30)
 
-def lounge_get_ranking_file_name(mmr:int, primary_rating=True):
-    to_use = lounge_runner_cutoff_filename if primary_rating else lounge_bagger_cutoff_filename
-    mmr_icon_data = (to_use[-1][1], to_use[-1][2])
-    for cutoff, file_name_path, discord_emoji  in to_use[:-1]:
-        if mmr <= cutoff:
-            mmr_icon_data = (lounge_folder_path + file_name_path, discord_emoji)
-            break
-    return mmr_icon_data
-
-async def loung_stats_send_with_ranking_icon(ctx, player_name, stats_data, embed_author_name, primary_rating):
-    embed = discord.Embed(
-                            title = player_name,
-                            colour = discord.Colour.dark_blue()
-                        )
-    MMR_INDEX = 1
-    
-    embed.set_author(name=embed_author_name, url=embed.author.url, icon_url="https://mariokartboards.com/lounge/images/logo.png")
-    
-    file=None
-    if stats_data[MMR_INDEX][1].isnumeric():
-        file_path, _ = lounge_get_ranking_file_name(int(stats_data[MMR_INDEX][1]), primary_rating)
-        file = discord.File(file_path)
-        embed.set_thumbnail(url="attachment://" + file_path)
-        
-    for stat_name, stat_value in stats_data:
-        embed.add_field(name="-" if len(str(stat_name).strip()) == 0 else str(stat_name), value="-" if len(str(stat_value).strip()) == 0 else str(stat_value))
-    await ctx.send(file=file, embed=embed, delete_after=30)
-        
-    
-async def lounge_mmr_send_with_ranking_icon(channel:discord.TextChannel, embed:discord.Embed, guild_settings, is_primary_leaderboard=True, primary_rating=True):
-    embed.set_author(name="\u200b" + embed.title, url=embed.author.url, icon_url="https://mariokartboards.com/lounge/images/logo.png")
-    embed.title = ""
-    if len(embed.fields) == 1:
-        #do one person
-        embed.title = embed.fields[0].name
-        file = None
-        if not embed.fields[0].value.isnumeric():
-            await safe_send(channel, f"Could not find {guild_settings.primary_leaderboard_name if is_primary_leaderboard else guild_settings.secondary_leaderboard_name} {guild_settings.primary_rating_command if primary_rating else guild_settings.secondary_rating_command} for the specified player.", delete_after=30)
-            return
-        
-        file_path, _ = lounge_get_ranking_file_name(int(embed.fields[0].value), primary_rating)
-        file = discord.File(file_path)
-        embed.set_thumbnail(url="attachment://" + file_path)
-        embed.description = embed.fields[0].value
-        embed.clear_fields()
-        await safe_send(channel, file=file, embed=embed, delete_after=30)
-    else:
-        missing_player_count = 0
-        for index in reversed(range(len(embed.fields))):
-            field = embed.fields[index]
-            if field.value.isnumeric():
-                _, discord_lounge_rating_icon = lounge_get_ranking_file_name(int(field.value), primary_rating)
-                new_name = field.name + "  " + discord_lounge_rating_icon
-                embed.set_field_at(index, name=new_name, value=field.value, inline=field.inline)
-            else:
-                missing_player_count += 1
-                embed.remove_field(index)
-        if missing_player_count > 0:
-            embed.set_footer(text=f"Could not find {guild_settings.primary_leaderboard_name if is_primary_leaderboard else guild_settings.secondary_leaderboard_name} {guild_settings.primary_rating_command if primary_rating else guild_settings.secondary_rating_command} for {missing_player_count} of the players.")
-                
-            
-        await safe_send(channel, embed=embed, delete_after=30)    
         
 def setup(bot):
     bot.add_cog(Queue(bot))

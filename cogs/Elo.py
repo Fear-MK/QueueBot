@@ -20,12 +20,9 @@ import unidecode
 
 gc = gspread.service_account(filename='credentials.json')
 
-LOUNGE_RT_STATS_RANGE = "B:K"
-LOUNGE_CT_STATS_RANGE = "B:K"
-LOUNGE_NAME_COLUMN = 1
 
-
-
+MKW_LOUNGE_RT_API = "https://mariokartboards.com/lounge/api/ladderplayer.php?ladder_id=1&player_names="
+MKW_LOUNGE_CT_API = "https://mariokartboards.com/lounge/api/ladderplayer.php?ladder_id=2&player_names="
 
 
 LORENZI_WEBSITE_DATA_API = "https://gb.hlorenzi.com/api/v1/graphql"
@@ -43,6 +40,9 @@ MKW_ITEM_RAIN_GRAPHQL_PAYLOAD = """{
     }
 }"""
 
+    
+
+
 
 Website_JSON_Framer = namedtuple('Website_JSON_Framer', 'name_name primary_rating_name secondary_rating_name')
 Website_JSON_Info = namedtuple('Website_JSON_Info', 'API_URL primary_JSON_framing secondary_JSON_framing')
@@ -57,12 +57,27 @@ Guild_Rating_Data = namedtuple('Guild_Rating_Data', 'using_rating using_sheet sh
 
 json_cacher = {}
 
+async def getJSONData(self, full_url):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(full_url) as r:
+            if r.status == 200:
+                js = await r.json()
+                return js
+            
 async def lorenzi_fetch(graph_ql_payload):
     async with aiohttp.ClientSession() as session:
         headers = {"Content-Type" : "text/plain"}
         async with session.post(LORENZI_WEBSITE_DATA_API, headers=headers, data=graph_ql_payload) as resp:
             data = await resp.json()
             return data
+        
+async def mkw_lounge_json_fetch(names, is_rt):
+    full_url = MKW_LOUNGE_RT_API if is_rt else MKW_LOUNGE_CT_API
+    full_url += ",".join(names)
+    return await getJSONData(full_url)
+    
+    
+    
     
 
 #Uses a 20s caching system to relieve spam load on lorenzi's website
@@ -71,13 +86,45 @@ async def lorenzi_get_JSON(ctx, graph_ql_payload):
     if graph_ql_payload not in json_cacher or json_cacher[graph_ql_payload][1] + Shared.CACHING_TIME < curTime:
         json_cacher[graph_ql_payload] = (await lorenzi_fetch(graph_ql_payload), curTime)
     return json_cacher[graph_ql_payload][0]
+    
         
-def format_lorenzi_data_unqiue(json_player_data): 
+def lorenzi_json_transformer(json_player_data):
     player_dict = {}
     for player in json_player_data['data']['team']['players']:
         player_dict[player['name'].lower().replace(" ", "")] = int(player['rating'])
     return player_dict
-def lorenzi_data_is_corrupt(json_player_data):
+
+def mkw_lounge_json_transformer(json_player_data):
+    player_dict = {}
+    for player in json_player_data['results']:
+        player_dict[player['player_name'].lower().replace(" ", "")] = int(player['current_mmr'])
+    return player_dict
+
+
+def mkw_json_corruption_check(json_data):
+    if json_data == None:
+        print("Bad request to Lounge API... Data was None.")
+        return True
+    if "results" not in json_data:
+        print("Bad request to Lounge API... Error in data.")
+        return True
+    if not isinstance(json_data["results"], list):
+        print("Bad request to Lounge API... Results not a list.")
+        return True
+    
+    for playerData in json_data["results"]:
+        if not isinstance(playerData, dict):
+            return True
+        
+        #if "current_mmr" not in playerData or not isinstance(playerData["current_mmr"], int):
+        #    return True
+        if "current_mmr" not in playerData or not isinstance(playerData["current_mmr"], str) or not Shared.isint(playerData["current_mmr"]):
+            return True
+        if "player_name" not in playerData or not isinstance(playerData["player_name"], str):
+            return True
+    return False
+
+def lorenzi_data_corruption_check(json_player_data):
     if not isinstance(json_player_data, dict):
         return True
     if 'data' not in json_player_data:
@@ -105,18 +152,18 @@ def result_file_write(stuff):
     with open("resultFile.txt", "w") as f:
         f.write(str(stuff))
         
-def mk7_name_fix(name:str):
+def utf8_to_ascii_mapping_name_fix(name:str):
     name = unidecode.unidecode(name)
     fixed_name = ''
     for char in name:
         if char.isalnum():
             fixed_name += char
-    return fixed_name.lower()
-mkw_item_rain_name_fix = mk7_name_fix
+    return fixed_name.lower().replace(" ", "")
+mk7_name_fix = utf8_to_ascii_mapping_name_fix
+mkw_item_rain_name_fix = utf8_to_ascii_mapping_name_fix
+mkw_lounge_name_fix = utf8_to_ascii_mapping_name_fix
 
-def match_ratings(all_ratings, members:[discord.Member], name_fix=None):
-    if len(members) == 0:
-        return {}
+def json_match_ratings(all_ratings, members:[discord.Member], data_corruption_check, json_transformer, name_fix=None):
     using_str = isinstance(members[0], str)
         
     member_ratings = dict(zip(members, [False]*len(members)))
@@ -125,13 +172,16 @@ def match_ratings(all_ratings, members:[discord.Member], name_fix=None):
         names = [member.display_name.lower().replace(" ", "") for member in members] if not using_str else [member.lower().replace(" ", "") for member in members]
     else:
         names = [name_fix(member.display_name) for member in members] if not using_str else [name_fix(member) for member in members]
+    
     check_value = None
-    if lorenzi_data_is_corrupt(all_ratings):
+    if data_corruption_check(all_ratings):
         return member_ratings
-    fixed_ratings = format_lorenzi_data_unqiue(all_ratings)
+    fixed_ratings = json_transformer(all_ratings)
     for name, rating in fixed_ratings.items():
-        #Checking for corrupt data
-        if name not in names:
+        if name_fix is not None:
+            name = name_fix(name)
+            
+        if name not in names: #didn't ask for this person, so continue
             continue
         #We found a match
         check_value = rating
@@ -141,17 +191,39 @@ def match_ratings(all_ratings, members:[discord.Member], name_fix=None):
 
 async def mk7_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
     json_data = await lorenzi_get_JSON(ctx, MK7_GRAPHQL_PAYLOAD)
-    return match_ratings(json_data, members, name_fix=mk7_name_fix)
+    return json_match_ratings(json_data, members, lorenzi_data_corruption_check, lorenzi_json_transformer, lorenzi_json_name_fix=mk7_name_fix)
 
 async def mkw_item_rain_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
     json_data = await lorenzi_get_JSON(ctx, MKW_ITEM_RAIN_GRAPHQL_PAYLOAD)
-    return match_ratings(json_data, members, name_fix=mkw_item_rain_name_fix)
+    return json_match_ratings(json_data, members, lorenzi_data_corruption_check, lorenzi_json_transformer, name_fix=mkw_item_rain_name_fix)
+    
+
+async def mkw_lounge_website_mmr(members:[discord.Member], is_rt=True, name_fix=None):
+    using_str = isinstance(members[0], str)
+    names = ['']*len(members)
+    if name_fix is None:
+        names = [member.display_name.lower().replace(" ", "") for member in members] if not using_str else [member.lower().replace(" ", "") for member in members]
+    else:
+        names = [name_fix(member.display_name) for member in members] if not using_str else [name_fix(member) for member in members]
+
+    data = None
+    try:
+        data = await mkw_lounge_json_fetch(names, is_rt)
+    except: #numerous failure types can occur, but they all mean the same thing: we didn't get out data
+        return False
+    
+    return json_match_ratings(data, members, mkw_json_corruption_check, mkw_lounge_json_transformer, name_fix)
+    
+
+async def mkw_lounge_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True, name_fix=mkw_lounge_name_fix):
+    
+    return await mkw_lounge_website_mmr(members, is_rt=is_primary_leaderboard, name_fix=name_fix)
+
+
 
 class GuildRating():
     def __init__(self):        
         #Website
-        self.primary_website_url = "https://mariokartboards.com/lounge/json/player.php?type=rt&name="
-        self.secondary_website_url = "https://mariokartboards.com/lounge/json/player.php?type=ct&name="
         
         self.guild_rating = Guild_Rating_Data()
 
@@ -316,43 +388,6 @@ class GuildRating():
         if all_mmr_data is None: #sanity check
             return False
         return all_mmr_data
-    
-    async def lounge_stats(self, ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
-        if len(members) == 0:
-            return {}
-        using_str = isinstance(members[0], str)
-        
-        member_stats = dict(zip(members, [False]*len(members)))
-        names = [member.display_name.lower().replace(" ", "") for member in members] if not using_str else [member.lower().replace(" ", "") for member in members]
-        sheet_range = LOUNGE_RT_STATS_RANGE if is_primary_leaderboard else LOUNGE_CT_STATS_RANGE
-        all_data = await self.sheet_data_pull(ctx, sheet_range, is_primary_leaderboard=is_primary_leaderboard, is_primary_rating=is_primary_rating)
-        if all_data is False:
-            return member_stats
-        
-        header_info = all_data[0][0:LOUNGE_NAME_COLUMN] + all_data[0][LOUNGE_NAME_COLUMN+1:]
-        for player_data in all_data[1:]:
-            #Checking for corrupt data
-            if not isinstance(player_data, list):
-                continue
-            if (len(player_data)-1) != len(header_info):
-                continue
-            if not (isinstance(player_data[LOUNGE_NAME_COLUMN], str)):
-                continue
-            this_name = player_data[LOUNGE_NAME_COLUMN].lower().replace(" ", "")
-            if this_name not in names:
-                continue
-            
-            #We found a match
-            stats_data = player_data[0:LOUNGE_NAME_COLUMN] + player_data[LOUNGE_NAME_COLUMN+1:]
-            stats_data = list(zip(header_info, stats_data))
-            found_member = members[names.index(this_name)]
-            member_stats[found_member] = False if stats_data is None else stats_data
-            if using_str:
-                temp = member_stats[found_member]
-                del member_stats[found_member]
-                member_stats[player_data[LOUNGE_NAME_COLUMN]] = temp
-            
-        return member_stats
         
         
     async def google_sheets_mmr(self, ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
@@ -373,7 +408,7 @@ class GuildRating():
                 continue
             if len(player_data) != 2:
                 continue
-            if not (isinstance(player_data[0], str) and isinstance(player_data[1], str) and player_data[1].isnumeric()):
+            if not (isinstance(player_data[0], str) and isinstance(player_data[1], str) and Shared.isint(player_data[1])):
                 continue
             this_name = player_data[0].lower().replace(" ", "")
             
@@ -391,78 +426,24 @@ class GuildRating():
             
         return member_ratings
     
-    
-    async def website_mmr(self, members:[discord.Member], is_rt=True, is_runner=True):
-        member_ratings = dict(zip(members, [False]*len(members)))
-        names = [member.display_name.lower().replace(" ", "") for member in members]
-        full_url = self.primary_website_url if is_rt else self.secondary_website_url
-        full_url += ",".join(names)
-        data = None
-        try:
-            data = await self.getJSONData(full_url)
-        except: #numerous failure types can occur, but they all mean the same thing: we didn't get out data
-            return False
-        
-        if self.data_is_corrupt(data, len(members)):
-            return False
-        
-        for playerData in data:
-            pdata_name = playerData['name'].lower().replace(" ", "")
-            if pdata_name not in names:
-                continue
-            member_ratings[member[names.index(pdata_name)]] = playerData["current_mmr"]
-        
-        
-        return member_ratings
-    
         
         
     async def mmr(self, ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
+        if len(members) == 0:
+            return {}
         if not self.guild_rating.using_rating:
             return {member : 0 for member in members}
         if ctx.guild.id == Shared.MK7_GUILD_ID:
             return await mk7_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
-        elif ctx.guild.id == Shared.MKW_ITEM_RAIN_LOUNGE:
+        elif ctx.guild.id == Shared.MKW_ITEM_RAIN_LOUNGE_GUILD_ID:
             return await mkw_item_rain_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
+        elif ctx.guild.id == Shared.MKW_LOUNGE_GUILD_ID:
+            return await mkw_lounge_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         elif self.guild_rating.using_sheet:
             return await self.google_sheets_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
-        else:
-            return await self.website_mmr(members, is_primary_leaderboard, is_primary_rating)
-           
+        return False
     
-    async def getJSONData(self, full_url):
-        async with aiohttp.ClientSession() as session:
-            async with session.get(full_url) as r:
-                if r.status == 200:
-                    js = await r.json()
-                    return js
-    
-    def data_is_corrupt(self, jsonData, data_size):
-        if jsonData == None:
-            print("Bad request to Lounge API... Data was None.")
-            return True
-        if "error" in jsonData:
-            print("Bad request to Lounge API... Error in data.")
-            return True
-        if not isinstance(jsonData, list):
-            print("Bad request to Lounge API... Data was not a list.")
-            return True
-        
-        if len(jsonData) != data_size:
-            return True
-        
-        for playerData in jsonData:
-            if not isinstance(playerData, dict):
-                return True
-            
-            #if "current_mmr" not in playerData or not isinstance(playerData["current_mmr"], int):
-            #    return True
-            if "current_mmr" not in playerData or not isinstance(playerData["current_mmr"], str) or not playerData["current_mmr"].isnumeric():
-                return True
-            if "name" not in playerData or not isinstance(playerData["name"], str):
-                return True
-        
-        return int(playerData["current_mmr"]) < 0
+
     
     async def set_use_rating(self, ctx, yes_or_no:str):
         yes_or_no = yes_or_no.lower().replace(" ", "")
@@ -575,18 +556,12 @@ class Elo(commands.Cog):
         self.connect_all_sheets()
         
     async def mmr(self, ctx, members: [discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
-        if str(ctx.guild.id) not in self.guild_sheets:
+        if str(ctx.guild.id) not in self.guild_sheets and ctx.guild.id not in Shared.RATING_MANUALLY_MANAGED_GUILD_IDS:
             #self.guild_sheets[str(ctx.guild.id)] = GuildRating(self.bot, ctx.guild)
             await ctx.send("A server admin needs to set up your rating system. Have a server admin do `!rating_help` for help.")
+            return True
         else:
             return await self.guild_sheets[str(ctx.guild.id)].mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
-        
-    async def stats(self, ctx, members, is_primary_leaderboard=True, is_primary_rating=True):
-        await exception_on_not_lounge(ctx) #Raises a silent except if not lounge
-        if str(ctx.guild.id) not in self.guild_sheets:
-            await ctx.send("A server admin needs to set up your rating system. Have a server admin do `!rating_help` for help.")
-        else:
-            return await self.guild_sheets[str(ctx.guild.id)].lounge_stats(ctx, members, is_primary_leaderboard, is_primary_rating)
         
         
     @commands.command()
@@ -647,7 +622,6 @@ class Elo(commands.Cog):
     @carrot_prohibit_check()
     @commands.max_concurrency(number=1,wait=True)
     @owner_or_permissions(administrator=True)
-    @guild_manually_managed_for_elo()
     async def rating_help(self, ctx):
         """Tutorial for how to set up the bot with elo on sheets"""
         for i in range(5):
