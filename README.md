@@ -1,5 +1,5 @@
 # QueueBot
-Multiserver Queuebot (Lounge's current 5v5 Queuebot)
+This Queuebot can be invited to your server and set up.
 
 # What is this?
 Queuebot is originally a Discord bot created and programmed by Cynda (insert link to Cynda's Github). After a squad queue is started, players form their own teams and queue as a team. Once there are enough teams, a server administrator will close the squad queue and make the rooms. This means that all of the teams in the queue will be matched against other teams in the squad queue with similar ratings. The Discord text channels are automatically created with each the teams that have been paired. Once everyone has finished playing their matches, a server administrator can end the squad queue, which will delete all of the created text channels.
