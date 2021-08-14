@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import dill as p
 from collections import defaultdict
 from cogs import GuildSettings
-from Shared import is_lounge, DISCORD_MAX_MESSAGE_LEN, isint
+from Shared import is_lounge, DISCORD_MAX_MESSAGE_LEN, isint, get_guild_id
 from ExtraChecks import carrot_prohibit_check, lounge_only_check, badwolf_command_check
 from builtins import staticmethod
 from typing import List
@@ -251,7 +251,7 @@ class IndividualQueue():
         if guildSettings.primary_leaderboard_name.strip() != "":
             valid_queue_types.append(guildSettings.primary_leaderboard_name.lower().strip())
             valid_queue_types_old.append(guildSettings.primary_leaderboard_name.strip())
-        if guildSettings.secondary_leaderboard_name.strip() != "":
+        if guildSettings.secondary_leaderboard_name.strip() != "" and guildSettings.secondary_leaderboard_on:
             valid_queue_types.append(guildSettings.secondary_leaderboard_name.lower().strip())
             valid_queue_types_old.append(guildSettings.secondary_leaderboard_name.strip())
         fixed_queue_type = None
@@ -294,7 +294,7 @@ class IndividualQueue():
             return
         
         cur_time = datetime.now()
-        guild_settings = GuildSettings.get_guild_settings(self.queue_channel.guild.id)
+        guild_settings = GuildSettings.get_guild_settings(get_guild_id(self.queue_channel))
 
         if (self.start_time + guild_settings.extension_time) <= cur_time:
             await self.makeRoomsLogic(self.queue_channel, (cur_time.minute + 1)%60, guild_settings, True)
@@ -321,10 +321,18 @@ class IndividualQueue():
             await self.is_started(ctx)
         except:
             return
-        indexes = range(len(self.teamRatings))
-        sortTeamsMMR = sorted(zip(self.teamRatings, indexes), reverse=True)
+
+        finalList = self.list[0:]
+        finalMMRs = self.teamRatings[0:]
+        
+        #Shuffle the lists so that any ties will be random
+        shuffle_together(finalList, finalMMRs)
+
+        indexes = range(len(finalMMRs))
+        sortTeamsMMR = sorted(zip(finalMMRs, indexes), reverse=True)
         sortedMMRs = [x for x, _ in sortTeamsMMR]
-        sortedTeams = [self.list[i] for i in (x for _, x in sortTeamsMMR)]
+        sortedTeams = [finalList[i] for i in (x for _, x in sortTeamsMMR)]
+        
         msg = "`Sorted list`\n"
         for i in range(len(sortedTeams)):
             if i > 0 and i % 15 == 0:
@@ -956,7 +964,7 @@ class Queue(commands.Cog):
             return self.guildQueues[ctx]
         elif isinstance(ctx, int):
             return self.guildQueues[str(ctx)]
-        return self.guildQueues[str(ctx.guild.id)]
+        return self.guildQueues[str(get_guild_id(ctx))]
     
     def get_queue_create(self, ctx, guilds_queues):
         if isinstance(ctx, str):
@@ -1144,6 +1152,7 @@ class Queue(commands.Cog):
 
 
     @commands.command()
+    @commands.cooldown(1, 30, commands.BucketType.channel)
     @commands.bot_has_guild_permissions(manage_channels=True)
     @commands.guild_only()
     @carrot_prohibit_check()
@@ -1186,7 +1195,7 @@ class Queue(commands.Cog):
     async def schedule(self, ctx, queue_channel:discord.TextChannel, leaderboard_type:str, team_size: int, teams_per_room:int, schedule_time:str):
         """Schedules a room in the future so that the staff doesn't have to be online to open the queue and make the rooms. "queue_channel" is the channel the queue will start in. "leaderboard_type" is your queue type, found in your queuebot settings. "team_size" is the number of players on each team. "teams_per_room" is the number of teams each room/text channel/voice channel (if applicable) will have. schedule_time is a date and time. Do not specify a time zone. The bot uses EASTERN TIME for all events. Convert your day and time to EASTERN TIME first. In your queuebot settings, also make sure that the queueing time and extension time are what you want them to be, as events started with this scheduler use these settings."""
         guild_settings = GuildSettings.get_guild_settings(ctx)        
-        scheduled_events = self.scheduled_events[str(ctx.guild.id)]
+        scheduled_events = self.scheduled_events[str(get_guild_id(ctx))]
         was_valid, leaderboard_type_fixed = await IndividualQueue.start_input_validation(ctx, leaderboard_type, team_size, teams_per_room, guild_settings)
         if not was_valid:
             return False
@@ -1214,7 +1223,7 @@ class Queue(commands.Cog):
                 await ctx.send("I can't see the queue channel, so I can't schedule this event.")
                 return
 
-            event = Scheduled_Event(leaderboard_type_fixed, team_size, teams_per_room, actual_time, False, queue_channel.id, ctx.guild.id)
+            event = Scheduled_Event(leaderboard_type_fixed, team_size, teams_per_room, actual_time, False, queue_channel.id, get_guild_id(ctx))
             
             scheduled_events.append(event)
             scheduled_events.sort(key=lambda _event: _event.queue_close_time)
@@ -1232,7 +1241,7 @@ class Queue(commands.Cog):
     @GuildSettings.has_roles_check()
     async def view_schedule(self, ctx):
         """Displays the schedule"""
-        scheduled_events = self.scheduled_events[str(ctx.guild.id)]
+        scheduled_events = self.scheduled_events[str(get_guild_id(ctx))]
         
         if len(scheduled_events) == 0:
             await ctx.send("There are currently no schedule events. Do `!schedule` to schedule a future event.")
@@ -1251,7 +1260,7 @@ class Queue(commands.Cog):
     @GuildSettings.has_roles_check()
     async def remove_event(self, ctx, event_num: int):
         """Removes an event from the schedule"""
-        scheduled_events = self.scheduled_events[str(ctx.guild.id)]
+        scheduled_events = self.scheduled_events[str(get_guild_id(ctx))]
 
         if event_num < 1 or event_num > len(scheduled_events):
             await ctx.send("This event number isn't in the schedule. Do `!view_schedule` to see the scheduled events.")
@@ -1304,16 +1313,16 @@ class Queue(commands.Cog):
         return scheduled_events
             
     @commands.command()
+    @commands.cooldown(1, 60, commands.BucketType.channel)
     @commands.guild_only()
     @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def sortTeams(self, ctx):
         """Backup command if !makerooms doesn't work; doesn't make channels, just sorts teams by elo/rating"""
-        await temporary_disabled_command(ctx)
         guild_settings = GuildSettings.get_guild_settings(ctx)
         guilds_queues = self.get_guilds_queues(ctx)
-        await guilds_queues.sortTeams(ctx, guild_settings)
+        await self.get_queue_create(ctx, guilds_queues).sortTeams(ctx)
         
     @commands.command(aliases=['qllu'])
     @carrot_prohibit_check()
@@ -1360,7 +1369,7 @@ async def elo_check(bot, message: discord.Message):
         return
     if not GuildSettings.has_guild_settings(message):
         return
-    guild_settings = GuildSettings.get_guild_settings(str(message.guild.id))
+    guild_settings = GuildSettings.get_guild_settings(str(get_guild_id(message)))
     if not guild_settings.rating_command_on:
         return
     lookup = False
@@ -1370,7 +1379,7 @@ async def elo_check(bot, message: discord.Message):
     title = ""
     title_end = ""
     if message.content.lower().startswith('!' + guild_settings.primary_rating_command.lower()) or \
-    (message.content.lower().startswith('^' + guild_settings.primary_rating_command.lower()) and is_lounge(message.guild.id)):
+    (message.content.lower().startswith('^' + guild_settings.primary_rating_command.lower()) and is_lounge(get_guild_id(message))):
         for_who = strip_prefix_and_command(message.content, {guild_settings.primary_rating_command.lower()}, message.content[0])
         if guild_settings.secondary_leaderboard_on:
             if not ((guild_settings.primary_leaderboard_name != "" and for_who.lower().startswith(guild_settings.primary_leaderboard_name.lower()))\
@@ -1385,7 +1394,7 @@ async def elo_check(bot, message: discord.Message):
         for_who = strip_prefix_and_command(for_who, strip_set, "") if guild_settings.secondary_leaderboard_on else for_who
     
     elif message.content.lower().startswith('!' + guild_settings.secondary_rating_command.lower()) or \
-            (message.content.lower().startswith('^' + guild_settings.secondary_rating_command.lower()) and is_lounge(message.guild.id)):
+            (message.content.lower().startswith('^' + guild_settings.secondary_rating_command.lower()) and is_lounge(get_guild_id(message))):
         for_who = strip_prefix_and_command(message.content, {guild_settings.secondary_rating_command.lower()}, message.content[0])
         valid_types = []
         if guild_settings.primary_leaderboard_secondary_rating_on:

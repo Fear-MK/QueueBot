@@ -57,7 +57,7 @@ Guild_Rating_Data = namedtuple('Guild_Rating_Data', 'using_rating using_sheet sh
 
 json_cacher = {}
 
-async def getJSONData(self, full_url):
+async def getJSONData(full_url):
     async with aiohttp.ClientSession() as session:
         async with session.get(full_url) as r:
             if r.status == 200:
@@ -191,7 +191,7 @@ def json_match_ratings(all_ratings, members:[discord.Member], data_corruption_ch
 
 async def mk7_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
     json_data = await lorenzi_get_JSON(ctx, MK7_GRAPHQL_PAYLOAD)
-    return json_match_ratings(json_data, members, lorenzi_data_corruption_check, lorenzi_json_transformer, lorenzi_json_name_fix=mk7_name_fix)
+    return json_match_ratings(json_data, members, lorenzi_data_corruption_check, lorenzi_json_transformer, name_fix=mk7_name_fix)
 
 async def mkw_item_rain_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
     json_data = await lorenzi_get_JSON(ctx, MKW_ITEM_RAIN_GRAPHQL_PAYLOAD)
@@ -205,18 +205,16 @@ async def mkw_lounge_website_mmr(members:[discord.Member], is_rt=True, name_fix=
         names = [member.display_name.lower().replace(" ", "") for member in members] if not using_str else [member.lower().replace(" ", "") for member in members]
     else:
         names = [name_fix(member.display_name) for member in members] if not using_str else [name_fix(member) for member in members]
-
+    
     data = None
     try:
         data = await mkw_lounge_json_fetch(names, is_rt)
     except: #numerous failure types can occur, but they all mean the same thing: we didn't get out data
         return False
-    
     return json_match_ratings(data, members, mkw_json_corruption_check, mkw_lounge_json_transformer, name_fix)
     
 
 async def mkw_lounge_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True, name_fix=mkw_lounge_name_fix):
-    
     return await mkw_lounge_website_mmr(members, is_rt=is_primary_leaderboard, name_fix=name_fix)
 
 
@@ -433,11 +431,11 @@ class GuildRating():
             return {}
         if not self.guild_rating.using_rating:
             return {member : 0 for member in members}
-        if ctx.guild.id == Shared.MK7_GUILD_ID:
+        if Shared.get_guild_id(ctx) == Shared.MK7_GUILD_ID:
             return await mk7_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
-        elif ctx.guild.id == Shared.MKW_ITEM_RAIN_LOUNGE_GUILD_ID:
+        elif Shared.get_guild_id(ctx) == Shared.MKW_ITEM_RAIN_LOUNGE_GUILD_ID:
             return await mkw_item_rain_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
-        elif ctx.guild.id == Shared.MKW_LOUNGE_GUILD_ID:
+        elif Shared.get_guild_id(ctx) == Shared.MKW_LOUNGE_GUILD_ID:
             return await mkw_lounge_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         elif self.guild_rating.using_sheet:
             return await self.google_sheets_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
@@ -556,12 +554,12 @@ class Elo(commands.Cog):
         self.connect_all_sheets()
         
     async def mmr(self, ctx, members: [discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
-        if str(ctx.guild.id) not in self.guild_sheets and ctx.guild.id not in Shared.RATING_MANUALLY_MANAGED_GUILD_IDS:
-            #self.guild_sheets[str(ctx.guild.id)] = GuildRating(self.bot, ctx.guild)
+        if str(Shared.get_guild_id(ctx)) not in self.guild_sheets and Shared.get_guild_id(ctx) not in Shared.RATING_MANUALLY_MANAGED_GUILD_IDS:
+            #self.guild_sheets[str(Shared.get_guild_id(ctx))] = GuildRating(self.bot, ctx.guild)
             await ctx.send("A server admin needs to set up your rating system. Have a server admin do `!rating_help` for help.")
             return True
         else:
-            return await self.guild_sheets[str(ctx.guild.id)].mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
+            return await self.guild_sheets[str(Shared.get_guild_id(ctx))].mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         
         
     @commands.command()
@@ -573,10 +571,10 @@ class Elo(commands.Cog):
     @guild_manually_managed_for_elo()
     async def set(self, ctx, which_sheet: str, which_leaderboard: str, item_to_set:str, setting:str):
         """Do !rating_help to understand how to use this command"""
-        success = await self.guild_sheets[str(ctx.guild.id)].set_guild_rating_setting(ctx, which_sheet, which_leaderboard, item_to_set, setting)
+        success = await self.guild_sheets[str(Shared.get_guild_id(ctx))].set_guild_rating_setting(ctx, which_sheet, which_leaderboard, item_to_set, setting)
         if success:
             self.pkl_guild_sheets()
-            await self.guild_sheets[str(ctx.guild.id)].send_settings(ctx, is_new=True)
+            await self.guild_sheets[str(Shared.get_guild_id(ctx))].send_settings(ctx, is_new=True)
             
     @commands.command()
     @commands.cooldown(1, 5, commands.BucketType.member)
@@ -587,10 +585,10 @@ class Elo(commands.Cog):
     @guild_manually_managed_for_elo()
     async def use_rating(self, ctx, yes_or_no:str):
         """If you want to use rating or not. If you're a competitive setting with ratings, this should be true. If you just use this bot to keep track of a list without wanting ratings, put this as false."""
-        success = await self.guild_sheets[str(ctx.guild.id)].set_use_rating(ctx, yes_or_no)
+        success = await self.guild_sheets[str(Shared.get_guild_id(ctx))].set_use_rating(ctx, yes_or_no)
         if success:
             self.pkl_guild_sheets()
-            await self.guild_sheets[str(ctx.guild.id)].send_settings(ctx, is_new=True)
+            await self.guild_sheets[str(Shared.get_guild_id(ctx))].send_settings(ctx, is_new=True)
         
     @commands.command()
     @commands.cooldown(1, 5, commands.BucketType.member)
@@ -601,7 +599,7 @@ class Elo(commands.Cog):
     @guild_manually_managed_for_elo()
     async def rating_settings(self, ctx):
         """Displays the settings for how rating is pulled"""
-        await self.guild_sheets[str(ctx.guild.id)].send_settings(ctx, is_new=False)
+        await self.guild_sheets[str(Shared.get_guild_id(ctx))].send_settings(ctx, is_new=False)
     
     @commands.command()
     @commands.cooldown(1, 10, commands.BucketType.member)
@@ -613,7 +611,7 @@ class Elo(commands.Cog):
     async def connect(self, ctx):
         """Run this after you change settings and want to refresh your connection."""
         msg = await ctx.send("Testing connection...")
-        await self.guild_sheets[str(ctx.guild.id)].set_up_system(ctx)
+        await self.guild_sheets[str(Shared.get_guild_id(ctx))].set_up_system(ctx)
         await msg.delete()
         
     @commands.command()
@@ -668,7 +666,7 @@ class Elo(commands.Cog):
         print("All sheets connected.")
         
     async def mogi_bot_defaults(self, ctx):
-        success = await self.guild_sheets[str(ctx.guild.id)].set_use_rating(ctx, 'No')
+        success = await self.guild_sheets[str(Shared.get_guild_id(ctx))].set_use_rating(ctx, 'No')
         if success:
             self.pkl_guild_sheets()
         

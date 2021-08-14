@@ -9,7 +9,7 @@ from datetime import timedelta
 import dill as p
 from CustomExceptions import NoGuildSettings
 from ExtraChecks import carrot_prohibit_check
-from Shared import QUEUEBOT_INVITE_LINK
+from Shared import QUEUEBOT_INVITE_LINK, get_guild_id
 
 class GuildSettings():
     def __init__(self):
@@ -209,7 +209,7 @@ class GuildSettings():
         return [leaderboard_type.lower().strip() for leaderboard_type in self.get_valid_leaderboard_types()]
     
     def mogi_bot_defaults(self, ctx):
-        self._guild_id = ctx.guild.id
+        self._guild_id = get_guild_id(ctx)
         self.primary_rating_command = "None" #Done
         self.secondary_rating_command = "None" #Done
         self.primary_leaderboard_name = "mogi"
@@ -253,7 +253,7 @@ def has_guild_settings(ctx) -> bool:
         return ctx in GUILD_SETTINGS
     if ctx.guild is None:
         return False
-    return str(ctx.guild.id) in GUILD_SETTINGS
+    return str(get_guild_id(ctx)) in GUILD_SETTINGS
 
 def has_guild_settings_check():
     return commands.check(check_has_guild_settings)
@@ -359,15 +359,20 @@ def get_guild_settings(ctx) -> GuildSettings:
         return GUILD_SETTINGS[ctx]
     if isinstance(ctx, int):
         return GUILD_SETTINGS[str(ctx)]
-    return GUILD_SETTINGS[str(ctx.guild.id)]
+    return GUILD_SETTINGS[str(get_guild_id(ctx))]
 
-def default_settings(ctx) -> GuildSettings:
+def delete_settings(ctx):
     global GUILD_SETTINGS
     if isinstance(ctx, str):
         del GUILD_SETTINGS[ctx]
-    if isinstance(ctx, int):
+    elif isinstance(ctx, int):
         del GUILD_SETTINGS[str(ctx)]
-    del GUILD_SETTINGS[str(ctx.guild.id)]
+    else:
+        del GUILD_SETTINGS[str(get_guild_id(ctx))]
+
+
+def default_settings(ctx) -> GuildSettings:
+    delete_settings(ctx)
     
     return get_guild_settings(ctx)
 
@@ -417,9 +422,7 @@ class Settings(commands.Cog):
     @has_roles_check()
     async def reset_settings(self, ctx):
         """WARNING: Completely resets your server's settings - cannot undo! This does **not** reset your Sheet settings (those are different settings)."""
-        guild_settings = default_settings(ctx)
-        guild_settings.set_guild_id(str(ctx.guild.id))
-        guild_settings.settings_display()
+        delete_settings(ctx)
         await ctx.send("Settings reset to default.")
         
             
@@ -444,7 +447,7 @@ class Settings(commands.Cog):
     async def queuebot_setup(self, ctx, setting_name:str, setting_value:str):
         """Changes how Queuebot is currently configured - !queuebot_settings_help to learn how to use"""
         guild_settings = get_guild_settings(ctx)
-        guild_settings.set_guild_id(str(ctx.guild.id))
+        guild_settings.set_guild_id(str(get_guild_id(ctx)))
         if setting_name not in guild_settings:
             await ctx.send(f"`{setting_name}` is not a valid setting. Do `!queuebot_settings_help` for what you can configure.")
             return

@@ -88,7 +88,7 @@ async def on_command_error(ctx, error):
         return
     if isinstance(error, NoGuildSettings):
         try:
-            await ctx.send("Contact a server admin to set up Queuebot's settings by doing `!queuebot_setup`", delete_after=10)
+            await ctx.send("Contact a server admin to set up Queuebot's settings by doing `!queuebot_setup` - they'll probably want to read `!queuebot_settings_help` to understand how to use the command. Server admins must change at least one setting using `!queuebot_setup` before any queues can be started.\n\nIf you just added Queuebot to your server, you **must** read `!rating_help` (even if your rating is managed manually by Bad Wolf) for important permission requirements. **Queuebot won't work if you don't do the permissions required in** `!rating_help`.", delete_after=45)
         except discord.Forbidden:
             pass
         return
@@ -100,7 +100,7 @@ async def on_command_error(ctx, error):
     
     if isinstance(error, RatingManuallyManaged):
         try:
-            await ctx.send("You cannot run this command because this server's rating settings are manually managed by Bad Wolf. If you need assitance, please contact Bad Wolf #1023 on Discord.")
+            await ctx.send("You cannot run this command because this server's rating settings are manually managed by Bad Wolf. If you need assistance, please contact Bad Wolf #1023 on Discord.")
         except discord.Forbidden:
             pass
         return
@@ -110,6 +110,11 @@ async def on_command_error(ctx, error):
         if isinstance(error.original, discord.Forbidden):
             #This should only run if bot can't send messages
             return
+    
+    try:
+        await ctx.send("An unknown error happened. Contact Bad Wolf #1023 on Discord if this keeps happening.")
+    except discord.Forbidden:
+        pass
 
     
     raise error
