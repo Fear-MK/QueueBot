@@ -118,7 +118,7 @@ def mkw_json_corruption_check(json_data):
         
         #if "current_mmr" not in playerData or not isinstance(playerData["current_mmr"], int):
         #    return True
-        if "current_mmr" not in playerData or not isinstance(playerData["current_mmr"], str) or not Shared.isint(playerData["current_mmr"]):
+        if "current_mmr" not in playerData or not Shared.isint(playerData["current_mmr"]):
             return True
         if "player_name" not in playerData or not isinstance(playerData["player_name"], str):
             return True
