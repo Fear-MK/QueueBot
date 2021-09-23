@@ -596,7 +596,6 @@ class Elo(commands.Cog):
     @carrot_prohibit_check()
     @commands.max_concurrency(number=1,wait=True)
     @owner_or_permissions(administrator=True)
-    @guild_manually_managed_for_elo()
     async def use_rating(self, ctx, yes_or_no:str):
         """If you want to use rating or not. If you're a competitive setting with ratings, this should be true. If you just use this bot to keep track of a list without wanting ratings, put this as false."""
         success = await self.guild_sheets[str(Shared.get_guild_id(ctx))].set_use_rating(ctx, yes_or_no)
