@@ -330,7 +330,7 @@ Here are 6 examples:
 `!queuebot_setup create_voice_channels yes`
 `!queuebot_setup should_ping yes`
 `!queuebot_setup joining_time 45`
-`!queuebot_setup rating_name elo`
+`!queuebot_setup primary_rating_command elo`
 `!queuebot_setup roles_have_power add Staff`
 `!queuebot_setup roles_have_power remove Staff`
 

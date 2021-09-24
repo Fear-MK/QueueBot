@@ -342,7 +342,16 @@ class IndividualQueue():
             msg += get_team_str(sortedTeams[i], sortedMMRs[i], guild_settings, add_new_line_end=True)
         await ctx.send(msg)
 
-        
+    async def get_category(self, category:discord.CategoryChannel):
+        if len(category.channels) < 50: #We can make more channels still
+            return category
+        name_options = {"sqoverflow", "squadqueueoverflow", "squadqueue", "tempsquadqueue", "squadqueuetemp", "overflowsquadqueue", "overflowsq"}
+        for _category in category.guild.categories:
+            for name_option in name_options:
+                str.repl
+                if name_option in _category.name.lower().replace("-","").replace(" ","") and len(_category.channels) < 50:
+                    return category
+            
     async def makeRoomsLogic(self, queue_channel:discord.TextChannel, openTime:int, guild_settings:GuildSettings.GuildSettings, startedViaAutomation=False):
         """Sorts squads into rooms based on average elo/rating, creates room channels and adds players to each room channel"""
         if self.making_rooms_run and startedViaAutomation: #Reduce race condition, but also allow manual !makeRooms
@@ -442,20 +451,33 @@ class IndividualQueue():
             roomMsg += ("\n%sRoom open at :%02d, start at :%02d. Make sure you have fun!\n\n"
                         % (host_str, openTime, startTime))
             roomMsg += mentions
-            final_text_channel_overwrites = category.overwrites.copy()
+            current_category = await self.get_category(category)
+            if current_category is None:
+                too_many_channels_message = "Unfortunately, your category and all of your overflow categories have 50 channels or more, so I cannot make anymore channels. You need to make an overflow category with the same category permissions as the category your squad queue is running in. You will need to name it 'overflowsquadqueue'\n\nI've deleted the created channels. Once you've created the overflow category, run `!makerooms` to make the channels again."
+                await safe_send(queue_channel, too_many_channels_message)
+                await self.remove_all_created_channels()
+                return
+            final_text_channel_overwrites = current_category.overwrites.copy()
             overwrites.update(final_text_channel_overwrites)
-            roomChannel = await category.create_text_channel(name=roomName)
-            
+            roomChannel = await current_category.create_text_channel(name=roomName)
+            self.channels.append([roomChannel, False])
             await roomChannel.edit(overwrites=overwrites)
+            
+            
             for ind, voice_channel_overwrites in enumerate(all_voice_channel_overwrites, 1):
-                final_voice_channel_overwrites = category.overwrites.copy()
+                current_category = await self.get_category(category)
+                if current_category is None:
+                    too_many_channels_message = "Unfortunately, your category and all of your overflow categories have 50 channels or more, so I cannot make anymore channels. You need to make an overflow category with the same category permissions as the category your squad queue is running in. You will need to name it 'overflowsquadqueue'. You can make as many overflow categories as you like.\n\nI've deleted the created channels. Once you've created the overflow category, run `!makerooms` to make the channels again."
+                    await safe_send(queue_channel, too_many_channels_message)
+                    await self.remove_all_created_channels()
+                    return
+                final_voice_channel_overwrites = current_category.overwrites.copy()
                 voice_channel_overwrites.update(final_voice_channel_overwrites)
                 
-                vc = await category.create_voice_channel(name=roomName + "-vc-" + str(ind))
-                await vc.edit(overwrites=voice_channel_overwrites)
+                vc = await current_category.create_voice_channel(name=roomName + "-vc-" + str(ind))
                 self.channels.append([vc, False])
+                await vc.edit(overwrites=voice_channel_overwrites)
                 
-            self.channels.append([roomChannel, False])
             await safe_send(roomChannel, roomMsg)
             await safe_send(queue_channel, msg)
             
@@ -795,7 +817,12 @@ class IndividualQueue():
         await ctx.send("Queue is now open; players can join and drop from the event")
         if guild_settings.lockdown_on:
             await unlockdown(ctx.channel)
-        
+    
+    async def remove_all_created_channels(self):
+        for i in range(len(self.channels)-1, -1, -1):
+            await self.channels[i][0].delete()
+            self.channels.pop(i)
+            
     async def end(self, ctx, guild_settings:GuildSettings.GuildSettings):
         """End the queue"""
         try:
@@ -803,9 +830,7 @@ class IndividualQueue():
         except:
             return
         try:
-            for i in range(len(self.channels)-1, -1, -1):
-                await self.channels[i][0].delete()
-                self.channels.pop(i)
+            await self.remove_all_created_channels()
         except:
             pass
         self.started = False
@@ -1181,8 +1206,8 @@ class Queue(commands.Cog):
                             await current_channel.edit(name=current_channel.name + CHECKMARK_ADDITION)
                             self.events_channels[index] = [current_channel, True]
                         return
-        except: #Because this iterates over other events, it could throw an exception if they change during iteration, or a key error
-            pass
+        except discord.errors.Forbidden: #Because this iterates over other events, it could throw an exception if they change during iteration, or a key error
+            await ctx.send("I'm missing permissions.")
        
                    
                                       
