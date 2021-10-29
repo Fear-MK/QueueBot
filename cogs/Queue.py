@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import dill as p
 from collections import defaultdict
 from cogs import GuildSettings
-from Shared import is_lounge, DISCORD_MAX_MESSAGE_LEN, isint, get_guild_id
+from Shared import is_lounge, DISCORD_MAX_MESSAGE_LEN, isint, get_guild_id, MKW_LOUNGE_RT_SQUAD_QUEUE_ROLE_STR, MKW_LOUNGE_CT_SQUAD_QUEUE_ROLE_STR
 from ExtraChecks import carrot_prohibit_check, lounge_only_check, badwolf_command_check
 from builtins import staticmethod
 from typing import List
@@ -342,16 +342,7 @@ class IndividualQueue():
             msg += get_team_str(sortedTeams[i], sortedMMRs[i], guild_settings, add_new_line_end=True)
         await ctx.send(msg)
 
-    async def get_category(self, category:discord.CategoryChannel):
-        if len(category.channels) < 50: #We can make more channels still
-            return category
-        name_options = {"sqoverflow", "squadqueueoverflow", "squadqueue", "tempsquadqueue", "squadqueuetemp", "overflowsquadqueue", "overflowsq"}
-        for _category in category.guild.categories:
-            for name_option in name_options:
-                str.repl
-                if name_option in _category.name.lower().replace("-","").replace(" ","") and len(_category.channels) < 50:
-                    return category
-            
+        
     async def makeRoomsLogic(self, queue_channel:discord.TextChannel, openTime:int, guild_settings:GuildSettings.GuildSettings, startedViaAutomation=False):
         """Sorts squads into rooms based on average elo/rating, creates room channels and adds players to each room channel"""
         if self.making_rooms_run and startedViaAutomation: #Reduce race condition, but also allow manual !makeRooms
@@ -451,33 +442,20 @@ class IndividualQueue():
             roomMsg += ("\n%sRoom open at :%02d, start at :%02d. Make sure you have fun!\n\n"
                         % (host_str, openTime, startTime))
             roomMsg += mentions
-            current_category = await self.get_category(category)
-            if current_category is None:
-                too_many_channels_message = "Unfortunately, your category and all of your overflow categories have 50 channels or more, so I cannot make anymore channels. You need to make an overflow category with the same category permissions as the category your squad queue is running in. You will need to name it 'overflowsquadqueue'\n\nI've deleted the created channels. Once you've created the overflow category, run `!makerooms` to make the channels again."
-                await safe_send(queue_channel, too_many_channels_message)
-                await self.remove_all_created_channels()
-                return
-            final_text_channel_overwrites = current_category.overwrites.copy()
+            final_text_channel_overwrites = category.overwrites.copy()
             overwrites.update(final_text_channel_overwrites)
-            roomChannel = await current_category.create_text_channel(name=roomName)
-            self.channels.append([roomChannel, False])
+            roomChannel = await category.create_text_channel(name=roomName)
+            
             await roomChannel.edit(overwrites=overwrites)
-            
-            
             for ind, voice_channel_overwrites in enumerate(all_voice_channel_overwrites, 1):
-                current_category = await self.get_category(category)
-                if current_category is None:
-                    too_many_channels_message = "Unfortunately, your category and all of your overflow categories have 50 channels or more, so I cannot make anymore channels. You need to make an overflow category with the same category permissions as the category your squad queue is running in. You will need to name it 'overflowsquadqueue'. You can make as many overflow categories as you like.\n\nI've deleted the created channels. Once you've created the overflow category, run `!makerooms` to make the channels again."
-                    await safe_send(queue_channel, too_many_channels_message)
-                    await self.remove_all_created_channels()
-                    return
-                final_voice_channel_overwrites = current_category.overwrites.copy()
+                final_voice_channel_overwrites = category.overwrites.copy()
                 voice_channel_overwrites.update(final_voice_channel_overwrites)
                 
-                vc = await current_category.create_voice_channel(name=roomName + "-vc-" + str(ind))
-                self.channels.append([vc, False])
+                vc = await category.create_voice_channel(name=roomName + "-vc-" + str(ind))
                 await vc.edit(overwrites=voice_channel_overwrites)
+                self.channels.append([vc, False])
                 
+            self.channels.append([roomChannel, False])
             await safe_send(roomChannel, roomMsg)
             await safe_send(queue_channel, msg)
             
@@ -558,14 +536,19 @@ class IndividualQueue():
             self.is_automated = True
             self.queue_channel = queue_channel
             self.start_time = start_time
-        
+        ping_str = "@here " if guild_settings.should_ping else ""
+        if guild_settings.should_ping and is_lounge(guild_settings.get_guild_id()):
+            if self.is_primary_leaderboard:
+                ping_str = MKW_LOUNGE_RT_SQUAD_QUEUE_ROLE_STR
+            else:
+                ping_str = MKW_LOUNGE_CT_SQUAD_QUEUE_ROLE_STR
         await safe_send(queue_channel, "A %s %dv%d squad queue with %d teams per room has been started%s - %sType `!c`, `!d`, or `!list`" %
                                  (f"{guild_settings.primary_leaderboard_name}" if self.is_primary_leaderboard else f"{guild_settings.secondary_leaderboard_name}",
                                   team_size,
                                   team_size,
                                   teams_per_room,
                                   f", queueing closes in {int(guild_settings.joining_time.total_seconds()/60)} minutes" if self.is_automated else "",
-                                  "@here " if guild_settings.should_ping else ""))
+                                  ping_str))
         if guild_settings.lockdown_on:
             await unlockdown(queue_channel)
             
@@ -790,7 +773,7 @@ class IndividualQueue():
                        % (", ".join([player.display_name for player in squad.keys()])))
 
     async def close(self, ctx, guild_settings:GuildSettings.GuildSettings):
-        """Close the queue so players can't join or drop"""
+        """Pauses the queue so players can't join or drop"""
         try:
             await self.is_started(ctx)
             await self.is_gathering(ctx)
@@ -803,7 +786,7 @@ class IndividualQueue():
             await lockdown(ctx.channel)
         
     async def open(self, ctx, guild_settings:GuildSettings.GuildSettings):
-        """Reopen the queue so that players can join and drop"""
+        """Resumes the queue so that players can join and drop"""
         try:
             await self.is_started(ctx)
         except:
@@ -817,12 +800,7 @@ class IndividualQueue():
         await ctx.send("Queue is now open; players can join and drop from the event")
         if guild_settings.lockdown_on:
             await unlockdown(ctx.channel)
-    
-    async def remove_all_created_channels(self):
-        for i in range(len(self.channels)-1, -1, -1):
-            await self.channels[i][0].delete()
-            self.channels.pop(i)
-            
+        
     async def end(self, ctx, guild_settings:GuildSettings.GuildSettings):
         """End the queue"""
         try:
@@ -830,7 +808,9 @@ class IndividualQueue():
         except:
             return
         try:
-            await self.remove_all_created_channels()
+            for i in range(len(self.channels)-1, -1, -1):
+                await self.channels[i][0].delete()
+                self.channels.pop(i)
         except:
             pass
         self.started = False
@@ -1108,24 +1088,24 @@ class Queue(commands.Cog):
         await self.get_queue_create(ctx, guilds_queues).start(ctx, leaderboard_type, team_size, teams_per_room, guild_settings)
     
     
-    @commands.command()
+    @commands.command(aliases=['close'])
     @commands.guild_only()
     @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
-    async def close(self, ctx):
-        """Close the queue so players can't join or drop. Does not end the queue, however. If you want to end the queue, do !end. !close should be used if you want to close for now and open it (using !open) later on."""
+    async def pause(self, ctx):
+        """Pauses the queue so players can't join or drop. Does not end the queue, however, so queued players will still be in the list. If you want to end the queue, do !end. !pause should be used if you want to pause for now and resume it (using !resume) later on. !pause stops the automation of the event too."""
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         guilds_queues = self.get_guilds_queues(ctx)
         await self.get_queue_create(ctx, guilds_queues).close(ctx, guild_settings)
 
-    @commands.command()
+    @commands.command(aliases=['open'])
     @commands.guild_only()
     @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
-    async def open(self, ctx):
-        """Reopen the queue so that players can join and drop. Use this if you have done !close"""
+    async def resume(self, ctx):
+        """Resume/reopen the queue so that players can join and drop. Use this if you have done !pause"""
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         guilds_queues = self.get_guilds_queues(ctx)
         await self.get_queue_create(ctx, guilds_queues).open(ctx, guild_settings)
@@ -1136,7 +1116,7 @@ class Queue(commands.Cog):
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
     async def end(self, ctx):
-        """End the queue"""
+        """Ends the queue, deleting the channels the bot created and removing all players from the list."""
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         guilds_queues = self.get_guilds_queues(ctx)
         await self.get_queue_create(ctx, guilds_queues).end(ctx, guild_settings)
@@ -1179,7 +1159,6 @@ class Queue(commands.Cog):
     @commands.command()
     @commands.cooldown(1, 30, commands.BucketType.channel)
     @commands.guild_only()
-    @commands.bot_has_guild_permissions(manage_channels=True)
     @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
@@ -1193,7 +1172,6 @@ class Queue(commands.Cog):
     @commands.command()
     @commands.guild_only()
     @carrot_prohibit_check()
-    @commands.bot_has_guild_permissions(manage_channels=True)
     async def finish(self, ctx):
         """Finishes the room by adding a checkmark to the channel. Anyone in the room can call this command."""
         current_channel = ctx.channel
@@ -1206,10 +1184,15 @@ class Queue(commands.Cog):
                             await current_channel.edit(name=current_channel.name + CHECKMARK_ADDITION)
                             self.events_channels[index] = [current_channel, True]
                         return
-        except discord.errors.Forbidden: #Because this iterates over other events, it could throw an exception if they change during iteration, or a key error
-            await ctx.send("I'm missing permissions.")
-       
-                   
+        except: #Because this iterates over other events, it could throw an exception if they change during iteration, or a key error
+            pass
+    
+    @commands.command(aliases=['time'])
+    @commands.guild_only()
+    @carrot_prohibit_check()
+    async def currenttime(self, ctx):
+        """Displays the current time for the bot."""
+        await ctx.channel.send(datetime.now() + TIME_ADJUSTMENT)
                                       
     @commands.command()
     @commands.guild_only()
