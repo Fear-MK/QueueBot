@@ -568,11 +568,11 @@ class IndividualQueue():
             await self.is_gathering(ctx)
         except:
             return
-        if self.team_size == 1 and len(members) > 0:
+        if len(members) > 0 and self.team_size == 1:
             await ctx.send("The number of people per team is 1. Don't tag anyone (just !c).")
             return
             
-        elif len(members) > 0 and len(members) < self.team_size - 1:
+        elif len(members) > 0 and len(members) != (self.team_size - 1):
             await ctx.send("You didn't tag the correct number of people for this format (%d)"
                            % (self.team_size-1))
             return
