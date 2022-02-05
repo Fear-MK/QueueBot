@@ -84,14 +84,20 @@ async def safe_send(channel:discord.TextChannel, content=None, embed=None, file=
 async def lockdown(channel:discord.TextChannel):
     overwrite = channel.overwrites_for(channel.guild.default_role)
     overwrite.send_messages = False
-    await channel.set_permissions(channel.guild.default_role, overwrite=overwrite)
-    await safe_send(channel, "Locked down " + channel.mention)
+    try:
+        await channel.set_permissions(channel.guild.default_role, overwrite=overwrite)
+        await safe_send(channel, "Locked down " + channel.mention)
+    except:
+        await safe_send(channel, "Could not lock down " + channel.mention + ", likely I do not have the right channel permissions.")
 
 async def unlockdown(channel:discord.TextChannel):
     overwrite = channel.overwrites_for(channel.guild.default_role)
     overwrite.send_messages = None
-    await channel.set_permissions(channel.guild.default_role, overwrite=overwrite)
-    await safe_send(channel, "Unlocked " + channel.mention)
+    try:
+        await channel.set_permissions(channel.guild.default_role, overwrite=overwrite)
+        await safe_send(channel, "Unlocked " + channel.mention)
+    except:
+        await safe_send(channel, "Could not unlock " + channel.mention + ", likely I do not have the right channel permissions.")
     
     
 async def temporary_disabled_command(ctx):
@@ -322,15 +328,16 @@ class IndividualQueue():
         """Updates sticky messages in MKW Loounge"""
         if self.ml_sticky_message is not None:
             try:
-                await self.ml_sticky_message.edit(self._get_mkw_ml_channel_message())
-            except:
-                pass
+                await self.ml_sticky_message.edit(content=self._get_mkw_ml_channel_message())
+            except Exception as e:
+                print(e)
 
         if self.mllu_sticky_message is not None:
             try:
-                await self.mllu_sticky_message.edit(self._get_mkw_mllu_channel_message())
-            except:
-                pass
+                discord.Message.edit
+                await self.mllu_sticky_message.edit(content=self._get_mkw_mllu_channel_message())
+            except Exception as e:
+                print(e)
 
 
 
@@ -367,23 +374,24 @@ class IndividualQueue():
         """Sorts squads into rooms based on average elo/rating, creates room channels and adds players to each room channel"""
         if self.making_rooms_run and startedViaAutomation: #Reduce race condition, but also allow manual !makeRooms
             return
-        
-        if guild_settings.lockdown_on:
-            await lockdown(queue_channel)
-        
         self.making_rooms_run = True
-        if self.gathering:
-            self.gathering = False
-            await safe_send(queue_channel, "Queue is now closed; players can no longer join or drop from the event")
 
+        if openTime >= 60 or openTime < 0:
+            await safe_send(queue_channel, "Please specify a valid time (in minutes) for rooms to open (00-59)")
+            return
+        
         numRooms = int(len(self.list) / self.teams_per_room)
         if numRooms == 0:
             await safe_send(queue_channel, "Not enough players to fill a room! Try this command with at least %d teams" % self.teams_per_room)
             return
 
-        if openTime >= 60 or openTime < 0:
-            await safe_send(queue_channel, "Please specify a valid time (in minutes) for rooms to open (00-59)")
-            return
+        if self.gathering:
+            self.gathering = False
+            await safe_send(queue_channel, "Queue is now closed; players can no longer join or drop from the event")
+        
+        if guild_settings.lockdown_on:
+            await lockdown(queue_channel)
+
         startTime = openTime + 10
         while startTime >= 60:
             startTime -= 60
@@ -401,8 +409,6 @@ class IndividualQueue():
         sortTeamsMMR = sorted(zip(finalMMRs, indexes), reverse=True)
         sortedMMRs = [x for x, _ in sortTeamsMMR]
         sortedTeams = [finalList[i] for i in (x for _, x in sortTeamsMMR)]
-
-        await self._delete_sticky_messages()
 
         for i in range(numRooms):
             #creating room roles and channels
@@ -574,39 +580,42 @@ class IndividualQueue():
                                   ping_str))
         if guild_settings.lockdown_on:
             await unlockdown(queue_channel)
-
         if is_lounge(guild_settings.get_guild_id()):
-            mllu_channel = await queue_channel.guild.get_channel(MKW_LOUNGE_MLLU_CHANNEL_ID)
-            ml_channel = await queue_channel.guild.get_channel(MKW_LOUNGE_ML_CHANNEL_ID)
+            ml_channel = queue_channel.guild.get_channel(MKW_LOUNGE_ML_CHANNEL_ID)
+            mllu_channel = queue_channel.guild.get_channel(MKW_LOUNGE_MLLU_CHANNEL_ID)
             self.ml_sticky_message = await safe_send(ml_channel, self._get_mkw_ml_channel_message())
             self.mllu_sticky_message = await safe_send(mllu_channel, self._get_mkw_mllu_channel_message())
             self.sticky_message_updater.start()
     
 
     def _get_mkw_ml_channel_message(self):
+        last_updated_str = f"Last updated: <t:{int(time())}:T> This will update every 15 seconds."
         sq_type_str = f"{self.leaderboard_type_str}"
         num_teams_queued = len(self.list)
         num_teams_str = f"{num_teams_queued} team{'s' if num_teams_queued != 1 else ''} queued"
         num_full_rooms = int(num_teams_queued / (self.teams_per_room))
         full_rooms_str = f"{num_full_rooms} full room{'' if num_full_rooms == 1 else 's'}"
-        teams_needed_str = ""
-        if (num_teams_queued % self.teams_per_room) != 0:
-            potential_full_rooms = num_full_rooms + 1
-            additional_teams_needed = self.teams_per_room - (num_teams_queued % self.teams_per_room)
-            teams_needed_str = f"\n**{additional_teams_needed} more team{'' if additional_teams_needed == 1 else 's'} needed for {potential_full_rooms} full room{'' if potential_full_rooms == 1 else 's'}**"
+        if not self.making_rooms_run:
+            teams_needed_str = ""
+            if (num_teams_queued % self.teams_per_room) != 0:
+                potential_full_rooms = num_full_rooms + 1
+                additional_teams_needed = self.teams_per_room - (num_teams_queued % self.teams_per_room)
+                teams_needed_str = f"\n**{additional_teams_needed} more team{'' if additional_teams_needed == 1 else 's'} needed for {potential_full_rooms} full room{'' if potential_full_rooms == 1 else 's'}**"
 
-        rooms_creation_str = ""
-        if self.is_automated and self.started and not self.making_rooms_run:
-            cur_time = datetime.now()
-            minutes_until_start = (int((self.start_time - cur_time).total_seconds()) // 60) + 1
-            guild_settings = GuildSettings.get_guild_settings(get_guild_id(self.queue_channel))
-            rooms_creation_str = f"\n{minutes_until_start} minute{'' if minutes_until_start == 1 else 's'} until rooms are made."
+            rooms_creation_str = ""
+            if self.is_automated and self.started and not self.making_rooms_run:
+                cur_time = datetime.now()
+                minutes_until_start = (int((self.start_time - cur_time).total_seconds()) // 60) + 1
+                rooms_creation_str = f"\n{minutes_until_start} minute{'' if minutes_until_start == 1 else 's'} until rooms are made"
+                if self.start_time <= cur_time:
+                    rooms_creation_str = f"\nQueuing time extended so the last room can be full. Rooms will be made shortly..."
 
-        last_updated_str = f"Last updated: <t:{int(time())}:T> This will update every 15 seconds."
-        return f"There is an ongoing {sq_type_str} {self.team_size}v{self.team_size} squad queue.\n\n{self.queue_channel.mention} - {num_teams_str}, {full_rooms_str}{teams_needed_str}{rooms_creation_str}\n\n{last_updated_str}"
+            return f"There is an ongoing {sq_type_str} {self.team_size}v{self.team_size} squad queue.\n\n{self.queue_channel.mention} - {num_teams_str}, {full_rooms_str}{teams_needed_str}{rooms_creation_str}\n\n{last_updated_str}"
+        else:
+            return f"There is an ongoing {sq_type_str} {self.team_size}v{self.team_size} squad queue.\n\n**{num_full_rooms} room{' is' if num_full_rooms == 1 else 's are'} now playing**\n\n{last_updated_str}"
     
     def _get_mkw_mllu_channel_message(self):
-        self._get_mkw_ml_channel_message()
+        return self._get_mkw_ml_channel_message()
 
     async def start(self, ctx, leaderboard_type:str, team_size: int, teams_per_room:int, guild_settings:GuildSettings.GuildSettings):
         """Start a queue in the channel"""
