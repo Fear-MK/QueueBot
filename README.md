@@ -10,7 +10,7 @@ While Cynda's original Queuebot was a fantastic idea, there were limitations. Fo
 For more information on all of the customizations and settings server administrators have the ability to change, run the commands **!help**, **!rating_help**, and **!queuebot_settings_help**.
 
 # Does anyone use it?
-Yep. To date, 16 servers have added this Queuebot. And to my knowledge, at least 3 of them use it on a frequent basis for a large server. Mario Kart Wii Lounge, MK7 Lounge, and MKT Lounge are 3 servers that I know use this bot for their squad queues.
+Yep. To date, 21 servers have added this Queuebot. And to my knowledge, at least 3 of them use it on a frequent basis for a large server. Mario Kart Wii Lounge, MK7 Lounge, and MKT Lounge are 3 servers that I know use this bot for their squad queues.
 
 # Okay, how do I get the bot?
 Here's the invite link:
