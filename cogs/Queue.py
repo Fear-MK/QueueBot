@@ -907,8 +907,6 @@ class IndividualQueue():
         if guild_settings.lockdown_on:
             await lockdown(ctx.channel)
 
-        # TODO: Delete mllu messages if they exist
-
         self.mllu_sticky_message = None
         self.ml_sticky_message = None
         self.leaderboard_type_str = None
