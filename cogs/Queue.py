@@ -904,12 +904,17 @@ class IndividualQueue():
 
         await self._delete_sticky_messages()
 
-        try:
-            for i in range(len(self.channels)-1, -1, -1):
+        
+        for i in range(len(self.channels)-1, -1, -1):
+            try:
                 await self.channels[i][0].delete()
                 self.channels.pop(i)
-        except:
-            pass
+            except discord.NotFound:
+                self.channels.pop(i)
+            except Exception as e:
+                print("line 914: end -> for i in range(len(self.channels)-1, -1, -1)")
+                print(e)
+
         self.started = False
         self.gathering = False
         self.making_rooms_run = False
@@ -1283,7 +1288,7 @@ class Queue(commands.Cog):
                     if current_channel == channel:
                         if not isFinished:
                             await current_channel.edit(name=current_channel.name + CHECKMARK_ADDITION)
-                            self.events_channels[index] = [current_channel, True]
+                            guild_queue.channels[index][1] = True
                         return
         except: #Because this iterates over other events, it could throw an exception if they change during iteration, or a key error
             pass
