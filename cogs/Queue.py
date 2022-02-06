@@ -1288,7 +1288,7 @@ class Queue(commands.Cog):
                     if current_channel == channel:
                         if not isFinished:
                             await current_channel.edit(name=current_channel.name + CHECKMARK_ADDITION)
-                            self.events_channels[index] = [current_channel, True]
+                            guild_queue.channels[index][1] = True
                         return
         except: #Because this iterates over other events, it could throw an exception if they change during iteration, or a key error
             pass
