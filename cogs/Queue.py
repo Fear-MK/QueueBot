@@ -907,7 +907,6 @@ class IndividualQueue():
         
         for i in range(len(self.channels)-1, -1, -1):
             try:
-                discord.TextChannel.delete
                 await self.channels[i][0].delete()
                 self.channels.pop(i)
             except discord.NotFound:
