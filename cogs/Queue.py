@@ -904,12 +904,18 @@ class IndividualQueue():
 
         await self._delete_sticky_messages()
 
-        try:
-            for i in range(len(self.channels)-1, -1, -1):
+        
+        for i in range(len(self.channels)-1, -1, -1):
+            try:
+                discord.TextChannel.delete
                 await self.channels[i][0].delete()
                 self.channels.pop(i)
-        except:
-            pass
+            except discord.NotFound:
+                self.channels.pop(i)
+            except Exception as e:
+                print("line 914: end -> for i in range(len(self.channels)-1, -1, -1)")
+                print(e)
+
         self.started = False
         self.gathering = False
         self.making_rooms_run = False
