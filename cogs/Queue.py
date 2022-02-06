@@ -330,13 +330,14 @@ class IndividualQueue():
             try:
                 await self.ml_sticky_message.edit(content=self._get_mkw_ml_channel_message())
             except Exception as e:
+                print("line 333: sticky_message_updater -> if self.ml_sticky_message is not None")
                 print(e)
 
         if self.mllu_sticky_message is not None:
             try:
-                discord.Message.edit
                 await self.mllu_sticky_message.edit(content=self._get_mkw_mllu_channel_message())
             except Exception as e:
+                print("line 340: sticky_message_updater -> if self.mllu_sticky_message is not None")
                 print(e)
 
 
@@ -585,7 +586,8 @@ class IndividualQueue():
             mllu_channel = queue_channel.guild.get_channel(MKW_LOUNGE_MLLU_CHANNEL_ID)
             self.ml_sticky_message = await safe_send(ml_channel, self._get_mkw_ml_channel_message())
             self.mllu_sticky_message = await safe_send(mllu_channel, self._get_mkw_mllu_channel_message())
-            self.sticky_message_updater.start()
+            if not self.sticky_message_updater.is_running():
+                self.sticky_message_updater.start()
     
 
     def _get_mkw_ml_channel_message(self):
@@ -868,21 +870,27 @@ class IndividualQueue():
     
     async def _delete_sticky_messages(self):
         if self.sticky_message_updater.is_running():
-            self.sticky_message_updater.stop()
+            self.sticky_message_updater.cancel()
 
         if self.mllu_sticky_message is not None:
             try:
                 await self.mllu_sticky_message.delete()
                 self.mllu_sticky_message = None
-            except:
-                pass
+            except discord.NotFound:
+                self.mllu_sticky_message = None
+            except Exception as e:
+                print("line 882: _delete_sticky_messages -> if self.mllu_sticky_message is not None")
+                print(e)
 
         if self.ml_sticky_message is not None:
             try:
                 await self.ml_sticky_message.delete()
                 self.ml_sticky_message = None
-            except:
-                pass
+            except discord.NotFound:
+                self.ml_sticky_message = None
+            except Exception as e:
+                print("line 892: _delete_sticky_messages -> if self.ml_sticky_message is not None")
+                print(e)
 
 
 
