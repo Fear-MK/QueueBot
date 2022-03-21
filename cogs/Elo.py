@@ -21,8 +21,8 @@ import unidecode
 gc = gspread.service_account(filename='credentials.json')
 
 
-MKW_LOUNGE_RT_API = "https://www.mkwlounge.gg/api/ladderplayer.php?ladder_id=1&player_names="
-MKW_LOUNGE_CT_API = "https://www.mkwlounge.gg/api/ladderplayer.php?ladder_id=2&player_names="
+MKW_LOUNGE_RT_API = "https://www.mkwlounge.gg/api/ladderplayer.php?ladder_type=rt&player_names="
+MKW_LOUNGE_CT_API = "https://www.mkwlounge.gg/api/ladderplayer.php?ladder_type=ct&player_names="
 
 
 LORENZI_WEBSITE_DATA_API = "https://gb.hlorenzi.com/api/v1/graphql"
