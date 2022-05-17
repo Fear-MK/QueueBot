@@ -377,12 +377,13 @@ class IndividualQueue():
             return
         self.making_rooms_run = True
 
+        numRooms = int(len(self.list) / self.teams_per_room)
+      
         if openTime >= 60 or openTime < 0:
             await safe_send(queue_channel, "Please specify a valid time (in minutes) for rooms to open (00-59)")
             return
-        
-        numRooms = int(len(self.list) / self.teams_per_room)
-        if numRooms == 0:
+      
+        elif numRooms == 0:
             await safe_send(queue_channel, "Not enough players to fill a room! Try this command with at least %d teams" % self.teams_per_room)
             return
 
@@ -393,6 +394,7 @@ class IndividualQueue():
         if guild_settings.lockdown_on:
             await lockdown(queue_channel)
 
+        
         startTime = openTime + 10
         while startTime >= 60:
             startTime -= 60
@@ -1268,10 +1270,17 @@ class Queue(commands.Cog):
     @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
-    async def makeRooms(self, ctx, openTime: int):
+    async def makeRooms(self, ctx, *args):
         """Closes the queue, sorts the confirmed teams by their ratings (if applicable), and creates text channels (and voice channels if applicable) for each group of teams."""
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         guilds_queues = self.get_guilds_queues(ctx)
+        if len(args) == 0:
+          openTime=0 #I looked at the code and just assumed that putting zero will create the rooms regardless of what minute it is.
+        else:
+          if not args[0].isdigit():
+            await ctx.send("Please specify an open time (in minutes) or leave no arguments to start the rooms immediately.")
+            return
+          openTime=int(args[0])
         await self.get_queue_create(ctx, guilds_queues).makeRooms(ctx, openTime, guild_settings)
         
     
